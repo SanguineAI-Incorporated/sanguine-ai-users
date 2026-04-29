@@ -1,9 +1,11 @@
 function App() {
   const { useState, useMemo } = React;
 
+  // -----------------------------
+  // MOCK DATA
+  // -----------------------------
   const mockLogs = (() => {
     const devices = ["robot-1", "robot-2", "robot-3"];
-    const locations = ["zone-a", "zone-b", "zone-c"];
     const commands = ["MOVE", "STOP"];
 
     const logs = [];
@@ -14,7 +16,6 @@ function App() {
       const date = new Date(t);
 
       const hazard = Math.random();
-
       const hasCommand = Math.random() < 0.6;
 
       const command = hasCommand
@@ -32,7 +33,7 @@ function App() {
         device: devices[Math.floor(Math.random() * devices.length)],
         hazard,
         command,
-        commandConfidence,
+        commandConfidence
       });
     }
 
@@ -41,18 +42,52 @@ function App() {
 
   const [filter, setFilter] = useState("all");
 
+  // -----------------------------
+  // FILTERED LOGS
+  // -----------------------------
   const filtered = useMemo(() => {
     if (filter === "triggered") {
-      return mockLogs.filter((l) => l.hazard > 0.8);
+      return mockLogs.filter(l => l.hazard > 0.8);
     }
     return mockLogs;
   }, [filter]);
 
+  // -----------------------------
+  // VOLUME DATA (HOURLY BUCKETS)
+  // -----------------------------
+  const volume = useMemo(() => {
+    const buckets = {};
+
+    filtered.forEach(l => {
+      const hour = new Date(l.timestamp).toISOString().slice(0, 13);
+      buckets[hour] = (buckets[hour] || 0) + 1;
+    });
+
+    return Object.entries(buckets).slice(0, 12).map(([hour, count]) => ({
+      hour,
+      count
+    }));
+  }, [filtered]);
+
+  const maxVolume = Math.max(...volume.map(v => v.count), 1);
+
+  // -----------------------------
+  // POLICY CHECK
+  // -----------------------------
+  const policyCheck = (log) => {
+    if (log.hazard > 0.9) return "EMERGENCY STOP (HIGH HAZARD)";
+    if (log.hazard > 0.8 && log.command === "STOP") return "EMERGENCY STOP (OPERATOR)";
+    return "CLEAR";
+  };
+
   const avgHazard =
     filtered.reduce((a, b) => a + b.hazard, 0) / filtered.length;
 
+  // -----------------------------
+  // UI
+  // -----------------------------
   return (
-    <div style={{ fontFamily: "Arial", padding: 20, background: "#C8D8E4", minHeight: "100vh" }}>
+    <div style={{ fontFamily: "Arial", background: "#C8D8E4", minHeight: "100vh" }}>
 
       {/* NAVBAR */}
       <div style={{
@@ -65,55 +100,125 @@ function App() {
         justifyContent: "space-between",
         alignItems: "center",
         padding: "0 20px",
-        background: "rgba(255,255,255,0.6)",
+        background: "rgba(255,255,255,0.65)",
         backdropFilter: "blur(10px)",
         borderBottom: "1px solid rgba(0,0,0,0.1)"
       }}>
-        <div><b>SANGUINE AI</b></div>
-        <div style={{ display: "flex", gap: 20 }}>
+        <b>SANGUINE AI</b>
+
+        <div style={{ display: "flex", gap: 20, fontSize: 12 }}>
           <a href="#">PROFILE</a>
           <a href="#">DOCUMENTATION</a>
         </div>
       </div>
 
-      <div style={{ marginTop: 80 }}>
+      {/* MAIN */}
+      <div style={{ padding: 20, paddingTop: 90 }}>
 
         {/* FILTER */}
-        <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-          <option value="all">All Logs</option>
-          <option value="triggered">Triggered Only</option>
-        </select>
+        <div style={{ marginBottom: 20 }}>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="all">All Logs</option>
+            <option value="triggered">Triggered Only</option>
+          </select>
 
-        {/* METRIC */}
-        <h3>Average Hazard: {avgHazard.toFixed(2)}</h3>
+          <span style={{ marginLeft: 20 }}>
+            Avg Hazard: <b>{avgHazard.toFixed(2)}</b>
+          </span>
+        </div>
 
-        {/* TABLE */}
-        <table border="1" cellPadding="8" style={{ marginTop: 20, width: "100%" }}>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Device</th>
-              <th>Hazard</th>
-              <th>Command</th>
-              <th>Confidence</th>
-            </tr>
-          </thead>
+        {/* GRID */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 20
+        }}>
 
-          <tbody>
-            {filtered.map((log, i) => (
-              <tr key={i}>
-                <td>{log.timestamp}</td>
-                <td>{log.device}</td>
-                <td>{log.hazard.toFixed(2)}</td>
-                <td>{log.command || "—"}</td>
-                <td>
-                  {log.commandConfidence ? log.commandConfidence.toFixed(2) : "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          {/* LOGS TABLE */}
+          <div style={{
+            background: "white",
+            padding: 15,
+            borderRadius: 8
+          }}>
+            <h3>Logs</h3>
+            <table width="100%" cellPadding="6" style={{ fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Device</th>
+                  <th>Hazard</th>
+                  <th>Command</th>
+                  <th>Conf</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((l, i) => (
+                  <tr key={i}>
+                    <td>{l.timestamp.slice(11, 19)}</td>
+                    <td>{l.device}</td>
+                    <td>{l.hazard.toFixed(2)}</td>
+                    <td>{l.command || "—"}</td>
+                    <td>{l.commandConfidence ? l.commandConfidence.toFixed(2) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
+          {/* VOLUME CHART (PURE HTML) */}
+          <div style={{
+            background: "white",
+            padding: 15,
+            borderRadius: 8
+          }}>
+            <h3>Volume</h3>
+
+            <div style={{
+              display: "flex",
+              alignItems: "flex-end",
+              height: 200,
+              gap: 6,
+              marginTop: 10
+            }}>
+              {volume.map((v, i) => (
+                <div key={i} style={{
+                  width: 20,
+                  height: `${(v.count / maxVolume) * 180}px`,
+                  background: "#2EC7FF"
+                }} />
+              ))}
+            </div>
+          </div>
+
+          {/* POLICIES */}
+          <div style={{
+            gridColumn: "1 / span 2",
+            background: "white",
+            padding: 15,
+            borderRadius: 8
+          }}>
+            <h3>Policies</h3>
+
+            <pre style={{
+              background: "#f4f4f4",
+              padding: 10,
+              fontSize: 12
+            }}>
+{`if (hazard > 0.9) {
+  EMERGENCY_STOP();
+}
+
+if (hazard > 0.8 && command === "STOP") {
+  OVERRIDE_OPERATOR();
+}
+
+if (vision.occlusion > 0.8) {
+  SAFE_MODE();
+}`}
+            </pre>
+          </div>
+
+        </div>
       </div>
     </div>
   );
