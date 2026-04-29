@@ -76,7 +76,7 @@ function App() {
     filtered.reduce((a, b) => a + b.hazard, 0) / filtered.length;
 
   // -----------------------------
-  // POLICY CHECK
+  // POLICY RESULT
   // -----------------------------
   const getPolicyResult = (log) => {
     if (!log) return "";
@@ -137,12 +137,12 @@ function App() {
         padding: 20,
         paddingTop: 0,
         display: "grid",
-        gridTemplateColumns: "2fr 1fr",
-        gridTemplateRows: "auto auto",
-        gap: 20
+        gridTemplateColumns: "2fr 1fr 1fr",
+        gap: 20,
+        alignItems: "start"
       }}>
 
-        {/* LOGS PANEL */}
+        {/* LOGS */}
         <div style={{
           background: "white",
           borderRadius: 8,
@@ -151,17 +151,13 @@ function App() {
           <h3>Logs</h3>
 
           <div style={{
-            maxHeight: 480,
+            maxHeight: 520,
             overflowY: "auto",
             border: "1px solid #eee",
             marginTop: 10
           }}>
             <table width="100%" cellPadding="6" style={{ fontSize: 12 }}>
-              <thead style={{
-                position: "sticky",
-                top: 0,
-                background: "white"
-              }}>
+              <thead style={{ position: "sticky", top: 0, background: "white" }}>
                 <tr>
                   <th>Time</th>
                   <th>Device</th>
@@ -191,42 +187,42 @@ function App() {
               </tbody>
             </table>
           </div>
-
-          {/* LOG DETAILS */}
-          <div style={{
-            marginTop: 12,
-            padding: 10,
-            border: "1px solid #eee",
-            background: "#fafafa",
-            fontSize: 12
-          }}>
-            <b>Log Details</b>
-
-            {selectedLog ? (
-              <div style={{ marginTop: 8 }}>
-                <div><b>Time:</b> {selectedLog.timestamp}</div>
-                <div><b>Device:</b> {selectedLog.device}</div>
-                <div><b>Hazard:</b> {selectedLog.hazard.toFixed(2)}</div>
-                <div><b>Command:</b> {selectedLog.command || "—"}</div>
-                <div>
-                  <b>Confidence:</b>{" "}
-                  {selectedLog.commandConfidence
-                    ? selectedLog.commandConfidence.toFixed(2)
-                    : "—"}
-                </div>
-                <div style={{ marginTop: 6 }}>
-                  <b>Policy Result:</b> {getPolicyResult(selectedLog)}
-                </div>
-              </div>
-            ) : (
-              <div style={{ marginTop: 8, opacity: 0.5 }}>
-                Click a log row to inspect details
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* VOLUME PANEL */}
+        {/* INSPECT LAYER (FIXED — ALWAYS VISIBLE) */}
+        <div style={{
+          background: "white",
+          borderRadius: 8,
+          padding: 15,
+          position: "sticky",
+          top: 90,
+          height: "fit-content"
+        }}>
+          <h3>Inspect</h3>
+
+          {selectedLog ? (
+            <div style={{ fontSize: 12, marginTop: 10 }}>
+              <div><b>Time:</b> {selectedLog.timestamp}</div>
+              <div><b>Device:</b> {selectedLog.device}</div>
+              <div><b>Hazard:</b> {selectedLog.hazard.toFixed(2)}</div>
+              <div><b>Command:</b> {selectedLog.command || "—"}</div>
+              <div>
+                <b>Confidence:</b>{" "}
+                {selectedLog.commandConfidence?.toFixed(2) || "—"}
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <b>Policy Result:</b> {getPolicyResult(selectedLog)}
+              </div>
+            </div>
+          ) : (
+            <div style={{ opacity: 0.5, fontSize: 12, marginTop: 10 }}>
+              Click a log row to inspect details
+            </div>
+          )}
+        </div>
+
+        {/* VOLUME */}
         <div style={{
           background: "white",
           borderRadius: 8,
@@ -256,9 +252,9 @@ function App() {
           </div>
         </div>
 
-        {/* POLICIES PANEL */}
+        {/* POLICIES */}
         <div style={{
-          gridColumn: "1 / 3",
+          gridColumn: "1 / 4",
           background: "white",
           borderRadius: 8,
           padding: 15
