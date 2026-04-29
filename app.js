@@ -1,6 +1,9 @@
 function App() {
   const { useState, useMemo } = React;
 
+  const [filter, setFilter] = useState("all");
+  const [selectedLog, setSelectedLog] = useState(null);
+
   // -----------------------------
   // MOCK DATA
   // -----------------------------
@@ -40,10 +43,8 @@ function App() {
     return logs;
   })();
 
-  const [filter, setFilter] = useState("all");
-
   // -----------------------------
-  // FILTERED LOGS
+  // FILTER
   // -----------------------------
   const filtered = useMemo(() => {
     if (filter === "triggered") {
@@ -53,7 +54,7 @@ function App() {
   }, [filter]);
 
   // -----------------------------
-  // VOLUME DATA
+  // VOLUME
   // -----------------------------
   const volume = useMemo(() => {
     const buckets = {};
@@ -73,6 +74,16 @@ function App() {
 
   const avgHazard =
     filtered.reduce((a, b) => a + b.hazard, 0) / filtered.length;
+
+  // -----------------------------
+  // POLICY CHECK
+  // -----------------------------
+  const getPolicyResult = (log) => {
+    if (!log) return "";
+    if (log.hazard > 0.9) return "EMERGENCY STOP";
+    if (log.hazard > 0.8 && log.command === "STOP") return "OPERATOR OVERRIDE";
+    return "CLEAR";
+  };
 
   // -----------------------------
   // UI
@@ -140,7 +151,7 @@ function App() {
           <h3>Logs</h3>
 
           <div style={{
-            maxHeight: 520,
+            maxHeight: 480,
             overflowY: "auto",
             border: "1px solid #eee",
             marginTop: 10
@@ -162,7 +173,14 @@ function App() {
 
               <tbody>
                 {filtered.map((l, i) => (
-                  <tr key={i}>
+                  <tr
+                    key={i}
+                    onClick={() => setSelectedLog(l)}
+                    style={{
+                      cursor: "pointer",
+                      background: selectedLog === l ? "#e6f7ff" : "transparent"
+                    }}
+                  >
                     <td>{l.timestamp.slice(11, 19)}</td>
                     <td>{l.device}</td>
                     <td>{l.hazard.toFixed(2)}</td>
@@ -172,6 +190,39 @@ function App() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* LOG DETAILS */}
+          <div style={{
+            marginTop: 12,
+            padding: 10,
+            border: "1px solid #eee",
+            background: "#fafafa",
+            fontSize: 12
+          }}>
+            <b>Log Details</b>
+
+            {selectedLog ? (
+              <div style={{ marginTop: 8 }}>
+                <div><b>Time:</b> {selectedLog.timestamp}</div>
+                <div><b>Device:</b> {selectedLog.device}</div>
+                <div><b>Hazard:</b> {selectedLog.hazard.toFixed(2)}</div>
+                <div><b>Command:</b> {selectedLog.command || "—"}</div>
+                <div>
+                  <b>Confidence:</b>{" "}
+                  {selectedLog.commandConfidence
+                    ? selectedLog.commandConfidence.toFixed(2)
+                    : "—"}
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  <b>Policy Result:</b> {getPolicyResult(selectedLog)}
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: 8, opacity: 0.5 }}>
+                Click a log row to inspect details
+              </div>
+            )}
           </div>
         </div>
 
