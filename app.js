@@ -53,7 +53,7 @@ function App() {
   }, [filter]);
 
   // -----------------------------
-  // VOLUME DATA (HOURLY BUCKETS)
+  // VOLUME DATA
   // -----------------------------
   const volume = useMemo(() => {
     const buckets = {};
@@ -72,14 +72,8 @@ function App() {
   const maxVolume = Math.max(...volume.map(v => v.count), 1);
 
   // -----------------------------
-  // POLICY CHECK
+  // POLICY ENGINE
   // -----------------------------
-  const policyCheck = (log) => {
-    if (log.hazard > 0.9) return "EMERGENCY STOP (HIGH HAZARD)";
-    if (log.hazard > 0.8 && log.command === "STOP") return "EMERGENCY STOP (OPERATOR)";
-    return "CLEAR";
-  };
-
   const avgHazard =
     filtered.reduce((a, b) => a + b.hazard, 0) / filtered.length;
 
@@ -87,7 +81,11 @@ function App() {
   // UI
   // -----------------------------
   return (
-    <div style={{ fontFamily: "Arial", background: "#C8D8E4", minHeight: "100vh" }}>
+    <div style={{
+      fontFamily: "Arial",
+      background: "#C8D8E4",
+      minHeight: "100vh"
+    }}>
 
       {/* NAVBAR */}
       <div style={{
@@ -127,45 +125,58 @@ function App() {
           </span>
         </div>
 
-        {/* GRID */}
+        {/* LAYOUT */}
         <div style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
+          display: "flex",
+          flexDirection: "column",
           gap: 20
         }}>
 
-          {/* LOGS TABLE */}
+          {/* LOGS (SCROLLABLE) */}
           <div style={{
             background: "white",
             padding: 15,
             borderRadius: 8
           }}>
             <h3>Logs</h3>
-            <table width="100%" cellPadding="6" style={{ fontSize: 12 }}>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Device</th>
-                  <th>Hazard</th>
-                  <th>Command</th>
-                  <th>Conf</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((l, i) => (
-                  <tr key={i}>
-                    <td>{l.timestamp.slice(11, 19)}</td>
-                    <td>{l.device}</td>
-                    <td>{l.hazard.toFixed(2)}</td>
-                    <td>{l.command || "—"}</td>
-                    <td>{l.commandConfidence ? l.commandConfidence.toFixed(2) : "—"}</td>
+
+            <div style={{
+              maxHeight: 420,
+              overflowY: "auto",
+              border: "1px solid #eee",
+              marginTop: 10
+            }}>
+              <table width="100%" cellPadding="6" style={{ fontSize: 12 }}>
+                <thead style={{
+                  position: "sticky",
+                  top: 0,
+                  background: "white"
+                }}>
+                  <tr>
+                    <th>Time</th>
+                    <th>Device</th>
+                    <th>Hazard</th>
+                    <th>Command</th>
+                    <th>Conf</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+
+                <tbody>
+                  {filtered.map((l, i) => (
+                    <tr key={i}>
+                      <td>{l.timestamp.slice(11, 19)}</td>
+                      <td>{l.device}</td>
+                      <td>{l.hazard.toFixed(2)}</td>
+                      <td>{l.command || "—"}</td>
+                      <td>{l.commandConfidence ? l.commandConfidence.toFixed(2) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          {/* VOLUME CHART (PURE HTML) */}
+          {/* VOLUME */}
           <div style={{
             background: "white",
             padding: 15,
@@ -176,23 +187,27 @@ function App() {
             <div style={{
               display: "flex",
               alignItems: "flex-end",
-              height: 200,
+              height: 220,
               gap: 6,
-              marginTop: 10
+              marginTop: 10,
+              border: "1px solid #eee",
+              padding: 10
             }}>
               {volume.map((v, i) => (
-                <div key={i} style={{
-                  width: 20,
-                  height: `${(v.count / maxVolume) * 180}px`,
-                  background: "#2EC7FF"
-                }} />
+                <div
+                  key={i}
+                  style={{
+                    width: 18,
+                    height: Math.max((v.count / maxVolume) * 180, 4),
+                    background: "#2EC7FF"
+                  }}
+                />
               ))}
             </div>
           </div>
 
           {/* POLICIES */}
           <div style={{
-            gridColumn: "1 / span 2",
             background: "white",
             padding: 15,
             borderRadius: 8
@@ -201,8 +216,9 @@ function App() {
 
             <pre style={{
               background: "#f4f4f4",
-              padding: 10,
-              fontSize: 12
+              padding: 12,
+              fontSize: 12,
+              overflowX: "auto"
             }}>
 {`if (hazard > 0.9) {
   EMERGENCY_STOP();
