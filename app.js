@@ -16,27 +16,15 @@ function App() {
     const end = new Date("2026-04-29T18:00:00Z").getTime();
 
     for (let t = start; t <= end; t += 1000 * 60 * 30) {
-      const date = new Date(t);
-
       const hazard = Math.random();
       const hasCommand = Math.random() < 0.6;
 
-      const command = hasCommand
-        ? hazard > 0.75
-          ? "STOP"
-          : commands[Math.floor(Math.random() * commands.length)]
-        : null;
-
-      const commandConfidence = hasCommand
-        ? 0.5 + Math.random() * 0.5
-        : null;
-
       logs.push({
-        timestamp: date.toISOString(),
+        timestamp: new Date(t).toISOString(),
         device: devices[Math.floor(Math.random() * devices.length)],
         hazard,
-        command,
-        commandConfidence
+        command: hasCommand ? (hazard > 0.75 ? "STOP" : commands[Math.floor(Math.random() * commands.length)]) : null,
+        commandConfidence: hasCommand ? 0.5 + Math.random() * 0.5 : null
       });
     }
 
@@ -60,13 +48,13 @@ function App() {
     const buckets = {};
 
     filtered.forEach(l => {
-      const hour = new Date(l.timestamp).toISOString().slice(0, 13);
+      const hour = l.timestamp.slice(0, 13);
       buckets[hour] = (buckets[hour] || 0) + 1;
     });
 
-    return Object.entries(buckets).slice(0, 12).map(([hour, count]) => ({
-      hour,
-      count
+    return Object.entries(buckets).slice(0, 12).map(([k, v]) => ({
+      hour: k,
+      count: v
     }));
   }, [filtered]);
 
@@ -75,10 +63,7 @@ function App() {
   const avgHazard =
     filtered.reduce((a, b) => a + b.hazard, 0) / filtered.length;
 
-  // -----------------------------
-  // POLICY RESULT
-  // -----------------------------
-  const getPolicyResult = (log) => {
+  const getPolicy = (log) => {
     if (!log) return "";
     if (log.hazard > 0.9) return "EMERGENCY STOP";
     if (log.hazard > 0.8 && log.command === "STOP") return "OPERATOR OVERRIDE";
@@ -92,11 +77,10 @@ function App() {
     <div style={{
       fontFamily: "Arial",
       background: "#C8D8E4",
-      minHeight: "100vh",
-      overflowY: "auto"
+      minHeight: "100vh"
     }}>
 
-      {/* NAVBAR */}
+      {/* NAV */}
       <div style={{
         position: "fixed",
         top: 0,
@@ -107,20 +91,18 @@ function App() {
         justifyContent: "space-between",
         alignItems: "center",
         padding: "0 20px",
-        background: "rgba(255,255,255,0.65)",
-        backdropFilter: "blur(10px)",
+        background: "rgba(255,255,255,0.7)",
         borderBottom: "1px solid rgba(0,0,0,0.1)",
         zIndex: 10
       }}>
         <b>SANGUINE AI</b>
-
         <div style={{ display: "flex", gap: 20, fontSize: 12 }}>
           <a href="#">PROFILE</a>
           <a href="#">DOCUMENTATION</a>
         </div>
       </div>
 
-      {/* FILTER */}
+      {/* FILTER BAR */}
       <div style={{ padding: 20, paddingTop: 90 }}>
         <select value={filter} onChange={(e) => setFilter(e.target.value)}>
           <option value="all">All Logs</option>
@@ -135,11 +117,10 @@ function App() {
       {/* DASHBOARD GRID */}
       <div style={{
         padding: 20,
-        paddingTop: 0,
         display: "grid",
         gridTemplateColumns: "2fr 1fr 1fr",
-        gap: 20,
-        alignItems: "start"
+        gridTemplateRows: "auto auto",
+        gap: 20
       }}>
 
         {/* LOGS */}
@@ -151,7 +132,7 @@ function App() {
           <h3>Logs</h3>
 
           <div style={{
-            maxHeight: 520,
+            maxHeight: 500,
             overflowY: "auto",
             border: "1px solid #eee",
             marginTop: 10
@@ -189,14 +170,12 @@ function App() {
           </div>
         </div>
 
-        {/* INSPECT LAYER (FIXED — ALWAYS VISIBLE) */}
+        {/* INSPECT (ALWAYS VISIBLE, NO STICKY TRICKS) */}
         <div style={{
           background: "white",
           borderRadius: 8,
           padding: 15,
-          position: "sticky",
-          top: 90,
-          height: "fit-content"
+          minHeight: 200
         }}>
           <h3>Inspect</h3>
 
@@ -206,18 +185,14 @@ function App() {
               <div><b>Device:</b> {selectedLog.device}</div>
               <div><b>Hazard:</b> {selectedLog.hazard.toFixed(2)}</div>
               <div><b>Command:</b> {selectedLog.command || "—"}</div>
-              <div>
-                <b>Confidence:</b>{" "}
-                {selectedLog.commandConfidence?.toFixed(2) || "—"}
-              </div>
-
+              <div><b>Confidence:</b> {selectedLog.commandConfidence?.toFixed(2) || "—"}</div>
               <div style={{ marginTop: 10 }}>
-                <b>Policy Result:</b> {getPolicyResult(selectedLog)}
+                <b>Policy:</b> {getPolicy(selectedLog)}
               </div>
             </div>
           ) : (
             <div style={{ opacity: 0.5, fontSize: 12, marginTop: 10 }}>
-              Click a log row to inspect details
+              Click a log row to inspect
             </div>
           )}
         </div>
@@ -233,7 +208,7 @@ function App() {
           <div style={{
             display: "flex",
             alignItems: "flex-end",
-            height: 260,
+            height: 240,
             gap: 6,
             marginTop: 10,
             border: "1px solid #eee",
@@ -243,8 +218,8 @@ function App() {
               <div
                 key={i}
                 style={{
-                  width: 18,
-                  height: Math.max((v.count / maxVolume) * 220, 4),
+                  width: 16,
+                  height: Math.max((v.count / maxVolume) * 200, 4),
                   background: "#2EC7FF"
                 }}
               />
