@@ -71,9 +71,6 @@ function App() {
 
   const maxVolume = Math.max(...volume.map(v => v.count), 1);
 
-  // -----------------------------
-  // POLICY ENGINE
-  // -----------------------------
   const avgHazard =
     filtered.reduce((a, b) => a + b.hazard, 0) / filtered.length;
 
@@ -84,7 +81,8 @@ function App() {
     <div style={{
       fontFamily: "Arial",
       background: "#C8D8E4",
-      minHeight: "100vh"
+      minHeight: "100vh",
+      overflowY: "auto"
     }}>
 
       {/* NAVBAR */}
@@ -100,7 +98,8 @@ function App() {
         padding: "0 20px",
         background: "rgba(255,255,255,0.65)",
         backdropFilter: "blur(10px)",
-        borderBottom: "1px solid rgba(0,0,0,0.1)"
+        borderBottom: "1px solid rgba(0,0,0,0.1)",
+        zIndex: 10
       }}>
         <b>SANGUINE AI</b>
 
@@ -110,116 +109,117 @@ function App() {
         </div>
       </div>
 
-      {/* MAIN */}
+      {/* FILTER */}
       <div style={{ padding: 20, paddingTop: 90 }}>
+        <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+          <option value="all">All Logs</option>
+          <option value="triggered">Triggered Only</option>
+        </select>
 
-        {/* FILTER */}
-        <div style={{ marginBottom: 20 }}>
-          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="all">All Logs</option>
-            <option value="triggered">Triggered Only</option>
-          </select>
+        <span style={{ marginLeft: 20 }}>
+          Avg Hazard: <b>{avgHazard.toFixed(2)}</b>
+        </span>
+      </div>
 
-          <span style={{ marginLeft: 20 }}>
-            Avg Hazard: <b>{avgHazard.toFixed(2)}</b>
-          </span>
+      {/* DASHBOARD GRID */}
+      <div style={{
+        padding: 20,
+        paddingTop: 0,
+        display: "grid",
+        gridTemplateColumns: "2fr 1fr",
+        gridTemplateRows: "auto auto",
+        gap: 20
+      }}>
+
+        {/* LOGS PANEL */}
+        <div style={{
+          background: "white",
+          borderRadius: 8,
+          padding: 15
+        }}>
+          <h3>Logs</h3>
+
+          <div style={{
+            maxHeight: 520,
+            overflowY: "auto",
+            border: "1px solid #eee",
+            marginTop: 10
+          }}>
+            <table width="100%" cellPadding="6" style={{ fontSize: 12 }}>
+              <thead style={{
+                position: "sticky",
+                top: 0,
+                background: "white"
+              }}>
+                <tr>
+                  <th>Time</th>
+                  <th>Device</th>
+                  <th>Hazard</th>
+                  <th>Command</th>
+                  <th>Conf</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filtered.map((l, i) => (
+                  <tr key={i}>
+                    <td>{l.timestamp.slice(11, 19)}</td>
+                    <td>{l.device}</td>
+                    <td>{l.hazard.toFixed(2)}</td>
+                    <td>{l.command || "—"}</td>
+                    <td>{l.commandConfidence ? l.commandConfidence.toFixed(2) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* LAYOUT */}
+        {/* VOLUME PANEL */}
         <div style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 20
+          background: "white",
+          borderRadius: 8,
+          padding: 15
         }}>
+          <h3>Volume</h3>
 
-          {/* LOGS (SCROLLABLE) */}
           <div style={{
-            background: "white",
-            padding: 15,
-            borderRadius: 8
+            display: "flex",
+            alignItems: "flex-end",
+            height: 260,
+            gap: 6,
+            marginTop: 10,
+            border: "1px solid #eee",
+            padding: 10
           }}>
-            <h3>Logs</h3>
-
-            <div style={{
-              maxHeight: 420,
-              overflowY: "auto",
-              border: "1px solid #eee",
-              marginTop: 10
-            }}>
-              <table width="100%" cellPadding="6" style={{ fontSize: 12 }}>
-                <thead style={{
-                  position: "sticky",
-                  top: 0,
-                  background: "white"
-                }}>
-                  <tr>
-                    <th>Time</th>
-                    <th>Device</th>
-                    <th>Hazard</th>
-                    <th>Command</th>
-                    <th>Conf</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {filtered.map((l, i) => (
-                    <tr key={i}>
-                      <td>{l.timestamp.slice(11, 19)}</td>
-                      <td>{l.device}</td>
-                      <td>{l.hazard.toFixed(2)}</td>
-                      <td>{l.command || "—"}</td>
-                      <td>{l.commandConfidence ? l.commandConfidence.toFixed(2) : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {volume.map((v, i) => (
+              <div
+                key={i}
+                style={{
+                  width: 18,
+                  height: Math.max((v.count / maxVolume) * 220, 4),
+                  background: "#2EC7FF"
+                }}
+              />
+            ))}
           </div>
+        </div>
 
-          {/* VOLUME */}
-          <div style={{
-            background: "white",
-            padding: 15,
-            borderRadius: 8
+        {/* POLICIES PANEL */}
+        <div style={{
+          gridColumn: "1 / 3",
+          background: "white",
+          borderRadius: 8,
+          padding: 15
+        }}>
+          <h3>Policies</h3>
+
+          <pre style={{
+            background: "#f4f4f4",
+            padding: 12,
+            fontSize: 12,
+            overflowX: "auto"
           }}>
-            <h3>Volume</h3>
-
-            <div style={{
-              display: "flex",
-              alignItems: "flex-end",
-              height: 220,
-              gap: 6,
-              marginTop: 10,
-              border: "1px solid #eee",
-              padding: 10
-            }}>
-              {volume.map((v, i) => (
-                <div
-                  key={i}
-                  style={{
-                    width: 18,
-                    height: Math.max((v.count / maxVolume) * 180, 4),
-                    background: "#2EC7FF"
-                  }}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* POLICIES */}
-          <div style={{
-            background: "white",
-            padding: 15,
-            borderRadius: 8
-          }}>
-            <h3>Policies</h3>
-
-            <pre style={{
-              background: "#f4f4f4",
-              padding: 12,
-              fontSize: 12,
-              overflowX: "auto"
-            }}>
 {`if (hazard > 0.9) {
   EMERGENCY_STOP();
 }
@@ -231,10 +231,9 @@ if (hazard > 0.8 && command === "STOP") {
 if (vision.occlusion > 0.8) {
   SAFE_MODE();
 }`}
-            </pre>
-          </div>
-
+          </pre>
         </div>
+
       </div>
     </div>
   );
