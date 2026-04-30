@@ -1,275 +1,325 @@
-function App() {
-  const { useState, useMemo } = React;
+import React, { useState, useMemo } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
-  const [filter, setFilter] = useState("all");
+/* ---------------- MOCK DATA ---------------- */
+
+const mockLogs = (() => {
+  const devices = ["robot-1", "robot-2", "robot-3"];
+  const locations = ["zone-a", "zone-b", "zone-c"];
+  const commands = ["MOVE", "STOP"];
+
+  const logs = [];
+  const start = new Date("2025-04-27T08:00:00Z").getTime();
+  const end = new Date("2026-04-29T18:00:00Z").getTime();
+
+  for (let t = start; t <= end; t += 1000 * 60 * 5) {
+    const date = new Date(t);
+    const hour = date.getUTCHours();
+
+    if (!(hour === 10 || hour === 14) && Math.random() < 0.7) continue;
+
+    const hazard = Math.random();
+    const hasCommand = Math.random() < 0.6;
+
+    const command = hasCommand
+      ? hazard > 0.75
+        ? "STOP"
+        : commands[Math.floor(Math.random() * commands.length)]
+      : null;
+
+    logs.push({
+      timestamp: date.toISOString(),
+      data: {
+        device_id: devices[Math.floor(Math.random() * devices.length)],
+        location_id: locations[Math.floor(Math.random() * locations.length)],
+        vision: { occlusion: Math.random() },
+        hazard_present: hazard,
+        voice: {
+          operator_command_label: command,
+          command_confidence: hasCommand ? Math.random() : null,
+          operator_verified: hasCommand ? Math.random() : null,
+        },
+      },
+    });
+  }
+
+  return logs;
+})();
+
+/* ---------------- APP ---------------- */
+
+export default function App() {
   const [selectedLog, setSelectedLog] = useState(null);
+  const [policyFilter, setPolicyFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("30d");
 
-  // -----------------------------
-  // MOCK DATA
-  // -----------------------------
-  const mockLogs = (() => {
-    const devices = ["robot-1", "robot-2", "robot-3"];
-    const commands = ["MOVE", "STOP"];
+  const hashDeviceId = (id) => {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+      hash = (hash << 5) - hash + id.charCodeAt(i);
+      hash |= 0;
+    }
+    return "dev_" + Math.abs(hash).toString(16);
+  };
 
-    const logs = [];
-    const start = new Date("2026-04-01T00:00:00Z").getTime();
-    const end = new Date("2026-04-29T23:00:00Z").getTime();
+  /* ---------------- POLICY LOGIC ---------------- */
 
-    for (let t = start; t <= end; t += 1000 * 60 * 60) {
-      const date = new Date(t);
-      const hour = date.getHours();
+  const checkPolicy = (log) => {
+    const h = log.data.hazard_present;
+    const cmd = log.data.voice.operator_command_label;
+    const occlusion = log.data.vision.occlusion;
 
-      const activity = hour > 8 && hour < 18 ? 1.6 : 0.6;
+    if (h > 0.9 || occlusion > 0.9) {
+      return {
+        status: "EMERGENCY STOP",
+        rule: "hazard > 0.9 OR occlusion > 0.9",
+      };
+    }
 
-      const hazard = Math.min(Math.random() * activity, 1);
-      const hasCommand = Math.random() < 0.6;
+    if (h > 0.8 && cmd === "STOP") {
+      return {
+        status: "EMERGENCY STOP",
+        rule: "hazard > 0.8 AND STOP command",
+      };
+    }
 
-      logs.push({
-        timestamp: date.toISOString(),
-        device: devices[Math.floor(Math.random() * devices.length)],
-        hazard,
-        command: hasCommand
-          ? hazard > 0.75
-            ? "STOP"
-            : commands[Math.floor(Math.random() * commands.length)]
-          : null,
-        commandConfidence: hasCommand ? 0.5 + Math.random() * 0.5 : null
-      });
+    return {
+      status: "CLEAR",
+      rule: "no policy violations",
+    };
+  };
+
+  /* ---------------- FILTERING ---------------- */
+
+  const filteredLogs = useMemo(() => {
+    const now = Date.now();
+
+    let cutoff = -Infinity;
+    if (dateFilter === "3d") cutoff = now - 3 * 86400000;
+    if (dateFilter === "30d") cutoff = now - 30 * 86400000;
+
+    let logs = mockLogs.filter(
+      (l) => new Date(l.timestamp).getTime() >= cutoff
+    );
+
+    if (policyFilter === "triggered") {
+      logs = logs.filter((l) => checkPolicy(l).status !== "CLEAR");
+    }
+
+    if (policyFilter === "clear") {
+      logs = logs.filter((l) => checkPolicy(l).status === "CLEAR");
     }
 
     return logs;
-  })();
+  }, [policyFilter, dateFilter]);
 
-  // -----------------------------
-  // FILTER
-  // -----------------------------
-  const filtered = useMemo(() => {
-    if (filter === "triggered") {
-      return mockLogs.filter(l => l.hazard > 0.8);
-    }
-    return mockLogs;
-  }, [filter]);
+  /* ---------------- VOLUME ---------------- */
 
-  // -----------------------------
-  // VOLUME (SORTED)
-  // -----------------------------
-  const volume = useMemo(() => {
+  const volumeData = useMemo(() => {
     const buckets = {};
 
-    filtered.forEach(l => {
-      const hour = l.timestamp.slice(0, 13);
-      buckets[hour] = (buckets[hour] || 0) + 1;
+    filteredLogs.forEach((log) => {
+      const key = log.timestamp.slice(0, 13);
+      buckets[key] = (buckets[key] || 0) + 1;
     });
 
     return Object.entries(buckets)
       .sort((a, b) => new Date(a[0]) - new Date(b[0]))
-      .slice(-30)
       .map(([hour, count]) => ({ hour, count }));
-  }, [filtered]);
+  }, [filteredLogs]);
 
-  const maxVolume = Math.max(...volume.map(v => v.count), 1);
+  /* ---------------- UI ---------------- */
 
-  const avgHazard =
-    filtered.reduce((a, b) => a + b.hazard, 0) / filtered.length;
-
-  const getPolicy = (log) => {
-    if (!log) return "";
-    if (log.hazard > 0.9) return "EMERGENCY STOP";
-    if (log.hazard > 0.8 && log.command === "STOP") return "OPERATOR OVERRIDE";
-    return "CLEAR";
-  };
-
-  // -----------------------------
-  // UI
-  // -----------------------------
   return (
-    <div style={{
-      fontFamily: "Arial",
-      background: "#C8D8E4",
-      minHeight: "100vh"
-    }}>
+    <div className="min-h-screen bg-[#C8D8E4] text-black">
 
-      {/* NAV */}
-      <div style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 60,
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: "0 20px",
-        background: "rgba(255,255,255,0.7)",
-        borderBottom: "1px solid rgba(0,0,0,0.1)",
-        zIndex: 10
-      }}>
-        <b>SANGUINE AI</b>
-        <div style={{ display: "flex", gap: 20, fontSize: 12 }}>
-          <a href="#">PROFILE</a>
-          <a href="#">DOCUMENTATION</a>
+      {/* HEADER */}
+      <div className="fixed top-0 left-0 right-0 h-16 flex justify-between items-center px-7 z-10 bg-white/60 backdrop-blur-xl border-b">
+        <div className="font-bold">SANGUINE AI</div>
+
+        <div className="flex gap-6 text-[11px] uppercase">
+          <a href="/profile">PROFILE</a>
+          <a href="/docs">DOCUMENTATION</a>
         </div>
       </div>
 
-      {/* FILTER */}
-      <div style={{ padding: 20, paddingTop: 90 }}>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-          <option value="all">All Logs</option>
-          <option value="triggered">Triggered Only</option>
-        </select>
+      <div className="pt-24 p-6 max-w-7xl mx-auto">
 
-        <span style={{ marginLeft: 20 }}>
-          Avg Hazard: <b>{avgHazard.toFixed(2)}</b>
-        </span>
-      </div>
+        {/* FILTERS */}
+        <div className="flex gap-3 mb-4">
+          <select
+            value={policyFilter}
+            onChange={(e) => setPolicyFilter(e.target.value)}
+            className="border p-1"
+          >
+            <option value="all">All</option>
+            <option value="triggered">Triggered</option>
+            <option value="clear">Clear</option>
+          </select>
 
-      {/* GRID */}
-      <div style={{
-        padding: 20,
-        display: "grid",
-        gridTemplateColumns: "2fr 1fr 1fr",
-        gap: 20
-      }}>
-
-        {/* LOGS */}
-        <div style={{ background: "white", padding: 15, borderRadius: 8 }}>
-          <h3>Logs</h3>
-
-          <div style={{
-            maxHeight: 500,
-            overflowY: "auto",
-            border: "1px solid #eee",
-            marginTop: 10
-          }}>
-            <table width="100%" cellPadding="6" style={{ fontSize: 12 }}>
-              <thead style={{ position: "sticky", top: 0, background: "white" }}>
-                <tr>
-                  <th>Time</th>
-                  <th>Device</th>
-                  <th>Hazard</th>
-                  <th>Command</th>
-                  <th>Conf</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {filtered.map((l, i) => (
-                  <tr
-                    key={i}
-                    onClick={() => setSelectedLog(l)}
-                    style={{
-                      cursor: "pointer",
-                      background: selectedLog === l ? "#e6f7ff" : "transparent"
-                    }}
-                  >
-                    <td>{l.timestamp.slice(11, 19)}</td>
-                    <td>{l.device}</td>
-                    <td>{l.hazard.toFixed(2)}</td>
-                    <td>{l.command || "—"}</td>
-                    <td>{l.commandConfidence?.toFixed(2) || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <select
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="border p-1"
+          >
+            <option value="3d">Last 3 days</option>
+            <option value="30d">Last 30 days</option>
+          </select>
         </div>
 
-        {/* INSPECT */}
-        <div style={{ background: "white", padding: 15, borderRadius: 8 }}>
-          <h3>Inspect</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-          {selectedLog ? (
-            <div style={{ fontSize: 12 }}>
-              <div><b>Time:</b> {selectedLog.timestamp}</div>
-              <div><b>Device:</b> {selectedLog.device}</div>
-              <div><b>Hazard:</b> {selectedLog.hazard.toFixed(2)}</div>
-              <div><b>Command:</b> {selectedLog.command || "—"}</div>
-              <div><b>Confidence:</b> {selectedLog.commandConfidence?.toFixed(2) || "—"}</div>
-              <div style={{ marginTop: 10 }}>
-                <b>Policy:</b> {getPolicy(selectedLog)}
+          {/* LOGS */}
+          <Card>
+            <CardContent className="p-4">
+              <h2 className="text-xl mb-4">Logs</h2>
+
+              <div className="overflow-auto max-h-96">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left border-b">
+                      <th className="p-2">Time</th>
+                      <th className="p-2">Device</th>
+                      <th className="p-2">Hazard</th>
+                      <th className="p-2">Status</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {filteredLogs.map((log, i) => {
+                      const policy = checkPolicy(log);
+
+                      return (
+                        <tr
+                          key={log.timestamp + i}
+                          className="border-b cursor-pointer hover:bg-gray-100"
+                          onClick={() => setSelectedLog(log)}
+                        >
+                          <td className="p-2">
+                            {new Date(log.timestamp).toLocaleString()}
+                          </td>
+                          <td className="p-2">
+                            {hashDeviceId(log.data.device_id)}
+                          </td>
+                          <td className="p-2">
+                            {log.data.hazard_present.toFixed(2)}
+                          </td>
+                          <td className="p-2">
+                            <span
+                              className={
+                                policy.status === "EMERGENCY STOP"
+                                  ? "text-red-600 font-semibold"
+                                  : "text-green-600"
+                              }
+                            >
+                              {policy.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            </div>
-          ) : (
-            <div style={{ opacity: 0.5 }}>Select a log</div>
-          )}
-        </div>
+            </CardContent>
+          </Card>
 
-        {/* VOLUME (BULLETPROOF) */}
-        <div style={{ background: "white", padding: 15, borderRadius: 8 }}>
-          <h3>Volume</h3>
+          {/* DETAILS */}
+          <Card>
+            <CardContent className="p-4">
+              <h2 className="text-xl mb-4">Log Details</h2>
 
-          {volume.length === 0 ? (
-            <div style={{ fontSize: 12, opacity: 0.5 }}>No data</div>
-          ) : (
-            <div style={{
-              display: "flex",
-              alignItems: "flex-end",
-              height: 200,
-              gap: 6,
-              marginTop: 10,
-              border: "1px solid #eee",
-              padding: "10px 6px"
-            }}>
-              {volume.map((v, i) => {
-                const height = Math.max((v.count / maxVolume) * 160, 4);
+              {selectedLog ? (
+                <div className="text-sm space-y-3">
 
-                return (
-                  <div
-                    key={i}
-                    title={`${v.hour} → ${v.count} logs`}
-                    style={{
-                      flex: 1,
-                      background: "#2EC7FF",
-                      height,
-                      borderRadius: 2,
-                      transition: "0.2s",
-                      cursor: "pointer"
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = "#1aa6d9";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = "#2EC7FF";
-                    }}
-                  />
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  <div>
+                    <div className="font-bold">Metadata</div>
+                    <div>Time: {selectedLog.timestamp}</div>
+                    <div>Device: {hashDeviceId(selectedLog.data.device_id)}</div>
+                    <div>Location: {selectedLog.data.location_id}</div>
+                  </div>
 
-        {/* POLICIES */}
-        <div style={{
-          gridColumn: "1 / 4",
-          background: "white",
-          padding: 15,
-          borderRadius: 8
-        }}>
-          <h3>Policies</h3>
+                  <div>
+                    <div className="font-bold">Vision</div>
+                    <div>Occlusion: {selectedLog.data.vision.occlusion.toFixed(2)}</div>
+                  </div>
 
-          <pre style={{
-            background: "#f4f4f4",
-            padding: 12,
-            fontSize: 12
-          }}>
-{`if (hazard > 0.9) {
-  EMERGENCY_STOP();
-}
+                  <div>
+                    <div className="font-bold">Voice</div>
+                    <div>
+                      Command: {selectedLog.data.voice.operator_command_label || "None"}
+                    </div>
+                  </div>
 
-if (hazard > 0.8 && command === "STOP") {
-  OVERRIDE_OPERATOR();
-}
+                  {/* ✅ ORIGINAL POLICY SECTION (VISIBLE + FIXED) */}
+                  <div className="mt-6 border-t pt-4">
+                    <div className="font-bold text-sm mb-2">
+                      Policy Engine
+                    </div>
 
-if (vision.occlusion > 0.8) {
-  SAFE_MODE();
+                    <pre className="text-xs bg-white/60 p-2 rounded border overflow-x-auto">
+{`function checkPolicy(log) {
+  const h = log.hazard;
+  const cmd = log.command;
+  const occlusion = log.occlusion;
+
+  if (h > 0.9 || occlusion > 0.9)
+    return "EMERGENCY STOP";
+
+  if (h > 0.8 && cmd === "STOP")
+    return "EMERGENCY STOP";
+
+  return "CLEAR";
 }`}
-          </pre>
-        </div>
+                    </pre>
 
+                    {selectedLog && (
+                      <div className="mt-2 text-sm">
+                        <div>
+                          <b>Result:</b>{" "}
+                          {checkPolicy(selectedLog).status}
+                        </div>
+                        <div>
+                          <b>Rule:</b>{" "}
+                          {checkPolicy(selectedLog).rule}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Select a log</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* VOLUME */}
+          <Card className="col-span-1 md:col-span-2">
+            <CardContent className="p-4">
+              <h2 className="text-xl mb-4">Volume</h2>
+
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={volumeData}>
+                  <XAxis dataKey="hour" />
+                  <YAxis />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="count" stroke="#2EC7FF" />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+        </div>
       </div>
     </div>
   );
 }
-
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App />);
