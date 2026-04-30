@@ -3,10 +3,10 @@ import React from "react";
 export default function Profile() {
   // Mock B2B user (replace later with real API data)
   const user = {
-    name: "Alex Mercer",
+    name: "Anna Mercer",
     role: "Operations Manager",
-    company: "Sanguine Systems",
-    email: "alex@sanguine.ai",
+    company: "Acme Robotics",
+    email: "Anna@acme-robotics.com",
     plan: "Enterprise",
     status: "Active",
   };
