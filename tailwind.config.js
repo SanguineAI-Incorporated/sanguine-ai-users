@@ -1,7 +1,14 @@
 export default {
-  content: ["./index.html", "./src/**/*.{js,jsx}"],
+  content: [
+    "./index.html",
+    "./src/**/*.{js,jsx,ts,tsx}"
+  ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        brand: "#C8D8E4"
+      }
+    },
   },
   plugins: [],
 };
