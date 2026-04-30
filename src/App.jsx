@@ -3,7 +3,8 @@ import { Routes, Route } from "react-router-dom";
 
 import Dashboard from "./pages/Dashboard.jsx";
 import EngineEditor from "./pages/EngineEditor.jsx";
-import Documentation from "./pages/Documentation";
+import Documentation from "./pages/Documentation.jsx";
+import Profile from "./pages/Profile.jsx";
 
 export default function App() {
   return (
@@ -15,5 +16,3 @@ export default function App() {
     </Routes>
   );
 }
-
-
