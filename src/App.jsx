@@ -55,7 +55,7 @@ const mockLogs = (() => {
 export default function App() {
   const [selectedLog, setSelectedLog] = useState(null);
   const [policyFilter, setPolicyFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("30d");
+  const [dateFilter, setDateFilter] = useState("24h");
 
   const hashDeviceId = (id = "") => {
     let hash = 0;
@@ -99,6 +99,8 @@ export default function App() {
     const now = Date.now();
 
     let cutoff = -Infinity;
+    if (dateFilter === "1h") cutoff = now - 3600000;
+    if (dateFilter === "24h") cutoff = now - 86400000;
     if (dateFilter === "3d") cutoff = now - 3 * 86400000;
     if (dateFilter === "30d") cutoff = now - 30 * 86400000;
 
@@ -145,6 +147,7 @@ export default function App() {
         <div className="flex gap-6 text-[11px] uppercase">
           <a href="/profile">PROFILE</a>
           <a href="/docs">DOCUMENTATION</a>
+          <a href="/engine-editor">ENGINE EDITOR</a>
         </div>
       </div>
 
@@ -167,6 +170,8 @@ export default function App() {
             onChange={(e) => setDateFilter(e.target.value)}
             className="border p-1"
           >
+            <option value="1h">1 hour</option>
+            <option value="24h">24 hours</option>
             <option value="3d">3 days</option>
             <option value="30d">30 days</option>
           </select>
@@ -174,8 +179,26 @@ export default function App() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
+          {/* VOLUME */}
+          <Card className="col-span-1 md:col-span-2">
+            <CardContent className="p-4">
+              <h2 className="text-xl mb-4">Volume</h2>
+
+              <div style={{ width: "100%", height: 300 }}>
+                <ResponsiveContainer>
+                  <LineChart data={volumeData}>
+                    <XAxis dataKey="hour" />
+                    <YAxis />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="count" stroke="#2EC7FF" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* LOGS */}
-          <Card>
+          <Card className="col-span-1 md:col-span-2">
             <CardContent className="p-4">
               <h2 className="text-xl mb-4">Logs</h2>
 
@@ -185,8 +208,8 @@ export default function App() {
                     <tr className="text-left border-b">
                       <th className="p-2">Time</th>
                       <th className="p-2">Device</th>
-                      <th className="p-2">Hazard</th>
                       <th className="p-2">Policy</th>
+                      <th className="p-2">Snapshot</th>
                     </tr>
                   </thead>
 
@@ -206,11 +229,11 @@ export default function App() {
                           <td className="p-2">
                             {hashDeviceId(log.data.device_id)}
                           </td>
-                          <td className="p-2">
-                            {log.data.hazard_present.toFixed(2)}
-                          </td>
-                          <td className="p-2 text-xs">
-                            {policy.status}
+                          <td className="p-2">{policy.status}</td>
+                          <td className="p-2 text-xs text-gray-700">
+                            h:{log.data.hazard_present.toFixed(2)} |
+                            o:{log.data.vision.occlusion.toFixed(2)} |
+                            cmd:{log.data.voice.operator_command_label ?? "null"}
                           </td>
                         </tr>
                       );
@@ -221,8 +244,8 @@ export default function App() {
             </CardContent>
           </Card>
 
-          {/* DETAILS + POLICY ENGINE VIEW */}
-          <Card>
+          {/* DETAILS */}
+          <Card className="col-span-1 md:col-span-2">
             <CardContent className="p-4">
               <h2 className="text-xl mb-4">Log Details</h2>
 
@@ -230,12 +253,20 @@ export default function App() {
                 <div className="text-sm space-y-4">
 
                   <div>
-                    <div className="font-bold">Metadata</div>
+                    <div className="font-bold">Full JSON Payload</div>
+                    <pre className="text-xs bg-white/70 p-2 rounded border overflow-auto">
+{JSON.stringify(selectedLog, null, 2)}
+                    </pre>
+                  </div>
+
+                  <div>
+                    <div className="font-bold">Decoded View</div>
                     <div>Time: {selectedLog.timestamp}</div>
-                    <div>
-                      Device: {hashDeviceId(selectedLog.data.device_id)}
-                    </div>
+                    <div>Device: {hashDeviceId(selectedLog.data.device_id)}</div>
                     <div>Location: {selectedLog.data.location_id}</div>
+                    <div>Hazard: {selectedLog.data.hazard_present.toFixed(3)}</div>
+                    <div>Occlusion: {selectedLog.data.vision.occlusion.toFixed(3)}</div>
+                    <div>Command: {selectedLog.data.voice.operator_command_label ?? "null"}</div>
                   </div>
 
                   <div>
@@ -246,49 +277,10 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* ✅ POLICY ENGINE VIEW (RESTORED) */}
-                  <div className="border-t pt-3">
-                    <div className="font-bold mb-2">Policy Engine View</div>
-
-                    <pre className="text-xs bg-white/70 p-2 rounded border overflow-auto">
-{`function checkPolicy(log) {
-  const h = log.hazard;
-  const cmd = log.command;
-  const occlusion = log.occlusion;
-
-  if (h > 0.9 || occlusion > 0.9)
-    return "EMERGENCY STOP";
-
-  if (h > 0.8 && cmd === "STOP")
-    return "EMERGENCY STOP";
-
-  return "CLEAR";
-}`}
-                    </pre>
-                  </div>
-
                 </div>
               ) : (
                 <p className="text-sm text-gray-500">Select a log</p>
               )}
-            </CardContent>
-          </Card>
-
-          {/* VOLUME */}
-          <Card className="col-span-1 md:col-span-2">
-            <CardContent className="p-4">
-              <h2 className="text-xl mb-4">Volume</h2>
-
-              <div style={{ width: "100%", height: 300 }}>
-                <ResponsiveContainer>
-                  <LineChart data={volumeData}>
-                    <XAxis dataKey="hour" />
-                    <YAxis />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="count" stroke="#2EC7FF" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
             </CardContent>
           </Card>
 
