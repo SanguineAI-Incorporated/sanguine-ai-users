@@ -5,8 +5,10 @@ export function Card({ className = "", ...props }) {
   return (
     <div
       className={cn(
-        "rounded-lg border border-black/10 bg-white/80 backdrop-blur-sm",
-        "shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
+        // stronger separation from brand background
+        "rounded-lg border border-black/15",
+        "bg-white/90 backdrop-blur-md",
+        "shadow-[0_2px_6px_rgba(0,0,0,0.06)]",
         className
       )}
       {...props}
