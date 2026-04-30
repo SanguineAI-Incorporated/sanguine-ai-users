@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Link } from "react-router-dom";
 import {
   LineChart,
   Line,
@@ -137,9 +138,9 @@ export default function Dashboard() {
         <div className="font-bold">SANGUINE AI</div>
 
         <div className="flex gap-6 text-[11px] uppercase">
-          <a href="/profile">PROFILE</a>
-          <a href="/docs">DOCUMENTATION</a>
-          <a href="/engine-editor">ENGINE EDITOR</a>
+          <Link to="/profile">PROFILE</Link>
+          <Link to="/documentation">DOCUMENTATION</Link>
+          <Link to="/engine-editor">ENGINE EDITOR</Link>
         </div>
       </div>
 
