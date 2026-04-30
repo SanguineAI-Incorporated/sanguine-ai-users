@@ -3,9 +3,10 @@ function App() {
 
   const [filter, setFilter] = useState("all");
   const [selectedLog, setSelectedLog] = useState(null);
+  const [hoverIndex, setHoverIndex] = useState(null);
 
   // -----------------------------
-  // MOCK DATA (IMPROVED)
+  // MOCK DATA
   // -----------------------------
   const mockLogs = (() => {
     const devices = ["robot-1", "robot-2", "robot-3"];
@@ -19,7 +20,6 @@ function App() {
       const date = new Date(t);
       const hour = date.getHours();
 
-      // realistic activity curve
       const activity = hour > 8 && hour < 18 ? 1.6 : 0.6;
 
       const hazard = Math.min(Math.random() * activity, 1);
@@ -52,7 +52,7 @@ function App() {
   }, [filter]);
 
   // -----------------------------
-  // VOLUME (SORTED TIME SERIES)
+  // VOLUME (SORTED)
   // -----------------------------
   const volume = useMemo(() => {
     const buckets = {};
@@ -79,18 +79,6 @@ function App() {
     if (log.hazard > 0.8 && log.command === "STOP") return "OPERATOR OVERRIDE";
     return "CLEAR";
   };
-
-  // -----------------------------
-  // CHART PATH (SVG LINE)
-  // -----------------------------
-  const chartWidth = 300;
-  const chartHeight = 180;
-
-  const points = volume.map((v, i) => {
-    const x = (i / (volume.length - 1)) * chartWidth;
-    const y = chartHeight - (v.count / maxVolume) * chartHeight;
-    return `${x},${y}`;
-  }).join(" ");
 
   // -----------------------------
   // UI
@@ -207,31 +195,111 @@ function App() {
           )}
         </div>
 
-        {/* VOLUME CHART (UPGRADED) */}
+        {/* VOLUME CHART */}
         <div style={{ background: "white", padding: 15, borderRadius: 8 }}>
           <h3>Volume</h3>
 
-          <svg width="100%" height="200" viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
-            {/* grid lines */}
-            {[0.25, 0.5, 0.75].map((g, i) => (
-              <line
-                key={i}
-                x1="0"
-                x2={chartWidth}
-                y1={chartHeight * g}
-                y2={chartHeight * g}
-                stroke="#eee"
-              />
-            ))}
+          {volume.length < 2 ? (
+            <div style={{ fontSize: 12, opacity: 0.5 }}>Not enough data</div>
+          ) : (
+            (() => {
+              const width = 320;
+              const height = 180;
+              const padding = 20;
 
-            {/* line */}
-            <polyline
-              fill="none"
-              stroke="#2EC7FF"
-              strokeWidth="2"
-              points={points}
-            />
-          </svg>
+              const safeMax = Math.max(maxVolume, 1);
+
+              const points = volume.map((v, i) => {
+                const x = padding + (i / (volume.length - 1)) * (width - padding * 2);
+                const y = height - padding - (v.count / safeMax) * (height - padding * 2);
+                return { x, y, ...v };
+              });
+
+              const path = points.map((p, i) => {
+                if (i === 0) return `M ${p.x} ${p.y}`;
+                const prev = points[i - 1];
+                const cx = (prev.x + p.x) / 2;
+                return `Q ${cx} ${prev.y}, ${p.x} ${p.y}`;
+              }).join(" ");
+
+              return (
+                <div style={{ position: "relative" }}>
+                  <svg
+                    width="100%"
+                    height="200"
+                    viewBox={`0 0 ${width} ${height}`}
+                    onMouseLeave={() => setHoverIndex(null)}
+                  >
+                    {[0.25, 0.5, 0.75].map((g, i) => (
+                      <line
+                        key={i}
+                        x1={padding}
+                        x2={width - padding}
+                        y1={height * g}
+                        y2={height * g}
+                        stroke="#eee"
+                      />
+                    ))}
+
+                    <path d={path} fill="none" stroke="#2EC7FF" strokeWidth="2" />
+
+                    {points.map((p, i) => (
+                      <rect
+                        key={i}
+                        x={p.x - 10}
+                        y={0}
+                        width={20}
+                        height={height}
+                        fill="transparent"
+                        onMouseEnter={() => setHoverIndex(i)}
+                      />
+                    ))}
+
+                    {hoverIndex !== null && (
+                      <line
+                        x1={points[hoverIndex].x}
+                        x2={points[hoverIndex].x}
+                        y1={padding}
+                        y2={height - padding}
+                        stroke="#999"
+                        strokeDasharray="4"
+                      />
+                    )}
+
+                    {points.map((p, i) => (
+                      <circle
+                        key={i}
+                        cx={p.x}
+                        cy={p.y}
+                        r={hoverIndex === i ? 4 : 2}
+                        fill="#2EC7FF"
+                      />
+                    ))}
+                  </svg>
+
+                  {hoverIndex !== null && (
+                    <div style={{
+                      position: "absolute",
+                      top: 0,
+                      left: `${(points[hoverIndex].x / width) * 100}%`,
+                      transform: "translate(-50%, -110%)",
+                      background: "black",
+                      color: "white",
+                      padding: "6px 8px",
+                      fontSize: 11,
+                      borderRadius: 4,
+                      pointerEvents: "none"
+                    }}>
+                      <div><b>{points[hoverIndex].count}</b> logs</div>
+                      <div style={{ opacity: 0.7 }}>
+                        {points[hoverIndex].hour.replace("T", " ")}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()
+          )}
         </div>
 
         {/* POLICIES */}
