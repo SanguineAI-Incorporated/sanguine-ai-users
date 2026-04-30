@@ -3,7 +3,6 @@ function App() {
 
   const [filter, setFilter] = useState("all");
   const [selectedLog, setSelectedLog] = useState(null);
-  const [hoverIndex, setHoverIndex] = useState(null);
 
   // -----------------------------
   // MOCK DATA
@@ -195,110 +194,47 @@ function App() {
           )}
         </div>
 
-        {/* VOLUME CHART */}
+        {/* VOLUME (BULLETPROOF) */}
         <div style={{ background: "white", padding: 15, borderRadius: 8 }}>
           <h3>Volume</h3>
 
-          {volume.length < 2 ? (
-            <div style={{ fontSize: 12, opacity: 0.5 }}>Not enough data</div>
+          {volume.length === 0 ? (
+            <div style={{ fontSize: 12, opacity: 0.5 }}>No data</div>
           ) : (
-            (() => {
-              const width = 320;
-              const height = 180;
-              const padding = 20;
+            <div style={{
+              display: "flex",
+              alignItems: "flex-end",
+              height: 200,
+              gap: 6,
+              marginTop: 10,
+              border: "1px solid #eee",
+              padding: "10px 6px"
+            }}>
+              {volume.map((v, i) => {
+                const height = Math.max((v.count / maxVolume) * 160, 4);
 
-              const safeMax = Math.max(maxVolume, 1);
-
-              const points = volume.map((v, i) => {
-                const x = padding + (i / (volume.length - 1)) * (width - padding * 2);
-                const y = height - padding - (v.count / safeMax) * (height - padding * 2);
-                return { x, y, ...v };
-              });
-
-              const path = points.map((p, i) => {
-                if (i === 0) return `M ${p.x} ${p.y}`;
-                const prev = points[i - 1];
-                const cx = (prev.x + p.x) / 2;
-                return `Q ${cx} ${prev.y}, ${p.x} ${p.y}`;
-              }).join(" ");
-
-              return (
-                <div style={{ position: "relative" }}>
-                  <svg
-                    width="100%"
-                    height="200"
-                    viewBox={`0 0 ${width} ${height}`}
-                    onMouseLeave={() => setHoverIndex(null)}
-                  >
-                    {[0.25, 0.5, 0.75].map((g, i) => (
-                      <line
-                        key={i}
-                        x1={padding}
-                        x2={width - padding}
-                        y1={height * g}
-                        y2={height * g}
-                        stroke="#eee"
-                      />
-                    ))}
-
-                    <path d={path} fill="none" stroke="#2EC7FF" strokeWidth="2" />
-
-                    {points.map((p, i) => (
-                      <rect
-                        key={i}
-                        x={p.x - 10}
-                        y={0}
-                        width={20}
-                        height={height}
-                        fill="transparent"
-                        onMouseEnter={() => setHoverIndex(i)}
-                      />
-                    ))}
-
-                    {hoverIndex !== null && (
-                      <line
-                        x1={points[hoverIndex].x}
-                        x2={points[hoverIndex].x}
-                        y1={padding}
-                        y2={height - padding}
-                        stroke="#999"
-                        strokeDasharray="4"
-                      />
-                    )}
-
-                    {points.map((p, i) => (
-                      <circle
-                        key={i}
-                        cx={p.x}
-                        cy={p.y}
-                        r={hoverIndex === i ? 4 : 2}
-                        fill="#2EC7FF"
-                      />
-                    ))}
-                  </svg>
-
-                  {hoverIndex !== null && (
-                    <div style={{
-                      position: "absolute",
-                      top: 0,
-                      left: `${(points[hoverIndex].x / width) * 100}%`,
-                      transform: "translate(-50%, -110%)",
-                      background: "black",
-                      color: "white",
-                      padding: "6px 8px",
-                      fontSize: 11,
-                      borderRadius: 4,
-                      pointerEvents: "none"
-                    }}>
-                      <div><b>{points[hoverIndex].count}</b> logs</div>
-                      <div style={{ opacity: 0.7 }}>
-                        {points[hoverIndex].hour.replace("T", " ")}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()
+                return (
+                  <div
+                    key={i}
+                    title={`${v.hour} → ${v.count} logs`}
+                    style={{
+                      flex: 1,
+                      background: "#2EC7FF",
+                      height,
+                      borderRadius: 2,
+                      transition: "0.2s",
+                      cursor: "pointer"
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = "#1aa6d9";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = "#2EC7FF";
+                    }}
+                  />
+                );
+              })}
+            </div>
           )}
         </div>
 
