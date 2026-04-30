@@ -55,7 +55,7 @@ const mockLogs = (() => {
 export default function App() {
   const [selectedLog, setSelectedLog] = useState(null);
   const [policyFilter, setPolicyFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("24h");
+  const [dateFilter, setDateFilter] = useState("30d");
 
   const hashDeviceId = (id = "") => {
     let hash = 0;
@@ -65,8 +65,6 @@ export default function App() {
     }
     return "dev_" + Math.abs(hash).toString(16);
   };
-
-  /* ---------------- POLICY ENGINE ---------------- */
 
   const checkPolicy = (log) => {
     const h = log?.data?.hazard_present ?? 0;
@@ -93,8 +91,6 @@ export default function App() {
     };
   };
 
-  /* ---------------- FILTERING ---------------- */
-
   const filteredLogs = useMemo(() => {
     const now = Date.now();
 
@@ -119,8 +115,6 @@ export default function App() {
     return logs;
   }, [policyFilter, dateFilter]);
 
-  /* ---------------- VOLUME ---------------- */
-
   const volumeData = useMemo(() => {
     const buckets = {};
 
@@ -134,8 +128,6 @@ export default function App() {
       count,
     }));
   }, [filteredLogs]);
-
-  /* ---------------- UI ---------------- */
 
   return (
     <div className="min-h-screen bg-[#C8D8E4] text-black">
@@ -180,8 +172,8 @@ export default function App() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
           {/* VOLUME */}
-          <Card className="col-span-1 md:col-span-2">
-            <CardContent className="p-4">
+          <Card className="col-span-1 md:col-span-2 border border-black/15">
+            <CardContent>
               <h2 className="text-xl mb-4">Volume</h2>
 
               <div style={{ width: "100%", height: 300 }}>
@@ -198,18 +190,18 @@ export default function App() {
           </Card>
 
           {/* LOGS */}
-          <Card className="col-span-1 md:col-span-2">
-            <CardContent className="p-4">
+          <Card className="border border-black/15">
+            <CardContent>
               <h2 className="text-xl mb-4">Logs</h2>
 
               <div className="overflow-auto max-h-96">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left border-b">
+                    <tr className="text-left border-b border-black/10">
                       <th className="p-2">Time</th>
                       <th className="p-2">Device</th>
+                      <th className="p-2">Hazard</th>
                       <th className="p-2">Policy</th>
-                      <th className="p-2">Snapshot</th>
                     </tr>
                   </thead>
 
@@ -221,20 +213,14 @@ export default function App() {
                         <tr
                           key={log.timestamp + i}
                           onClick={() => setSelectedLog(log)}
-                          className="border-b cursor-pointer hover:bg-gray-100"
+                          className="border-b border-black/5 cursor-pointer hover:bg-black/5"
                         >
                           <td className="p-2">
                             {new Date(log.timestamp).toLocaleString()}
                           </td>
-                          <td className="p-2">
-                            {hashDeviceId(log.data.device_id)}
-                          </td>
-                          <td className="p-2">{policy.status}</td>
-                          <td className="p-2 text-xs text-gray-700">
-                            h:{log.data.hazard_present.toFixed(2)} |
-                            o:{log.data.vision.occlusion.toFixed(2)} |
-                            cmd:{log.data.voice.operator_command_label ?? "null"}
-                          </td>
+                          <td className="p-2">{hashDeviceId(log.data.device_id)}</td>
+                          <td className="p-2">{log.data.hazard_present.toFixed(2)}</td>
+                          <td className="p-2 text-xs">{policy.status}</td>
                         </tr>
                       );
                     })}
@@ -245,28 +231,18 @@ export default function App() {
           </Card>
 
           {/* DETAILS */}
-          <Card className="col-span-1 md:col-span-2">
-            <CardContent className="p-4">
+          <Card className="border border-black/15">
+            <CardContent>
               <h2 className="text-xl mb-4">Log Details</h2>
 
               {selectedLog ? (
                 <div className="text-sm space-y-4">
 
                   <div>
-                    <div className="font-bold">Full JSON Payload</div>
-                    <pre className="text-xs bg-white/70 p-2 rounded border overflow-auto">
-{JSON.stringify(selectedLog, null, 2)}
-                    </pre>
-                  </div>
-
-                  <div>
-                    <div className="font-bold">Decoded View</div>
+                    <div className="font-bold">Metadata</div>
                     <div>Time: {selectedLog.timestamp}</div>
                     <div>Device: {hashDeviceId(selectedLog.data.device_id)}</div>
                     <div>Location: {selectedLog.data.location_id}</div>
-                    <div>Hazard: {selectedLog.data.hazard_present.toFixed(3)}</div>
-                    <div>Occlusion: {selectedLog.data.vision.occlusion.toFixed(3)}</div>
-                    <div>Command: {selectedLog.data.voice.operator_command_label ?? "null"}</div>
                   </div>
 
                   <div>
@@ -275,6 +251,25 @@ export default function App() {
                     <div className="text-gray-600 text-xs">
                       {checkPolicy(selectedLog).rule}
                     </div>
+                  </div>
+
+                  <div className="border-t pt-3">
+                    <div className="font-bold mb-2">Policy Engine View</div>
+                    <pre className="text-xs bg-white/70 p-2 rounded border overflow-auto">
+{`function checkPolicy(log) {
+  const h = log.hazard;
+  const cmd = log.command;
+  const occlusion = log.occlusion;
+
+  if (h > 0.9 || occlusion > 0.9)
+    return "EMERGENCY STOP";
+
+  if (h > 0.8 && cmd === "STOP")
+    return "EMERGENCY STOP";
+
+  return "CLEAR";
+}`}
+                    </pre>
                   </div>
 
                 </div>
