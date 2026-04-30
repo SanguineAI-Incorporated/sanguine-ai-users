@@ -5,25 +5,35 @@ function App() {
   const [selectedLog, setSelectedLog] = useState(null);
 
   // -----------------------------
-  // MOCK DATA
+  // MOCK DATA (IMPROVED)
   // -----------------------------
   const mockLogs = (() => {
     const devices = ["robot-1", "robot-2", "robot-3"];
     const commands = ["MOVE", "STOP"];
 
     const logs = [];
-    const start = new Date("2025-04-27T08:00:00Z").getTime();
-    const end = new Date("2026-04-29T18:00:00Z").getTime();
+    const start = new Date("2026-04-01T00:00:00Z").getTime();
+    const end = new Date("2026-04-29T23:00:00Z").getTime();
 
-    for (let t = start; t <= end; t += 1000 * 60 * 30) {
-      const hazard = Math.random();
+    for (let t = start; t <= end; t += 1000 * 60 * 60) {
+      const date = new Date(t);
+      const hour = date.getHours();
+
+      // realistic activity curve
+      const activity = hour > 8 && hour < 18 ? 1.6 : 0.6;
+
+      const hazard = Math.min(Math.random() * activity, 1);
       const hasCommand = Math.random() < 0.6;
 
       logs.push({
-        timestamp: new Date(t).toISOString(),
+        timestamp: date.toISOString(),
         device: devices[Math.floor(Math.random() * devices.length)],
         hazard,
-        command: hasCommand ? (hazard > 0.75 ? "STOP" : commands[Math.floor(Math.random() * commands.length)]) : null,
+        command: hasCommand
+          ? hazard > 0.75
+            ? "STOP"
+            : commands[Math.floor(Math.random() * commands.length)]
+          : null,
         commandConfidence: hasCommand ? 0.5 + Math.random() * 0.5 : null
       });
     }
@@ -42,7 +52,7 @@ function App() {
   }, [filter]);
 
   // -----------------------------
-  // VOLUME
+  // VOLUME (SORTED TIME SERIES)
   // -----------------------------
   const volume = useMemo(() => {
     const buckets = {};
@@ -52,10 +62,10 @@ function App() {
       buckets[hour] = (buckets[hour] || 0) + 1;
     });
 
-    return Object.entries(buckets).slice(0, 12).map(([k, v]) => ({
-      hour: k,
-      count: v
-    }));
+    return Object.entries(buckets)
+      .sort((a, b) => new Date(a[0]) - new Date(b[0]))
+      .slice(-30)
+      .map(([hour, count]) => ({ hour, count }));
   }, [filtered]);
 
   const maxVolume = Math.max(...volume.map(v => v.count), 1);
@@ -69,6 +79,18 @@ function App() {
     if (log.hazard > 0.8 && log.command === "STOP") return "OPERATOR OVERRIDE";
     return "CLEAR";
   };
+
+  // -----------------------------
+  // CHART PATH (SVG LINE)
+  // -----------------------------
+  const chartWidth = 300;
+  const chartHeight = 180;
+
+  const points = volume.map((v, i) => {
+    const x = (i / (volume.length - 1)) * chartWidth;
+    const y = chartHeight - (v.count / maxVolume) * chartHeight;
+    return `${x},${y}`;
+  }).join(" ");
 
   // -----------------------------
   // UI
@@ -102,7 +124,7 @@ function App() {
         </div>
       </div>
 
-      {/* FILTER BAR */}
+      {/* FILTER */}
       <div style={{ padding: 20, paddingTop: 90 }}>
         <select value={filter} onChange={(e) => setFilter(e.target.value)}>
           <option value="all">All Logs</option>
@@ -114,21 +136,16 @@ function App() {
         </span>
       </div>
 
-      {/* DASHBOARD GRID */}
+      {/* GRID */}
       <div style={{
         padding: 20,
         display: "grid",
         gridTemplateColumns: "2fr 1fr 1fr",
-        gridTemplateRows: "auto auto",
         gap: 20
       }}>
 
         {/* LOGS */}
-        <div style={{
-          background: "white",
-          borderRadius: 8,
-          padding: 15
-        }}>
+        <div style={{ background: "white", padding: 15, borderRadius: 8 }}>
           <h3>Logs</h3>
 
           <div style={{
@@ -162,7 +179,7 @@ function App() {
                     <td>{l.device}</td>
                     <td>{l.hazard.toFixed(2)}</td>
                     <td>{l.command || "—"}</td>
-                    <td>{l.commandConfidence ? l.commandConfidence.toFixed(2) : "—"}</td>
+                    <td>{l.commandConfidence?.toFixed(2) || "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -170,17 +187,12 @@ function App() {
           </div>
         </div>
 
-        {/* INSPECT (ALWAYS VISIBLE, NO STICKY TRICKS) */}
-        <div style={{
-          background: "white",
-          borderRadius: 8,
-          padding: 15,
-          minHeight: 200
-        }}>
+        {/* INSPECT */}
+        <div style={{ background: "white", padding: 15, borderRadius: 8 }}>
           <h3>Inspect</h3>
 
           {selectedLog ? (
-            <div style={{ fontSize: 12, marginTop: 10 }}>
+            <div style={{ fontSize: 12 }}>
               <div><b>Time:</b> {selectedLog.timestamp}</div>
               <div><b>Device:</b> {selectedLog.device}</div>
               <div><b>Hazard:</b> {selectedLog.hazard.toFixed(2)}</div>
@@ -191,56 +203,50 @@ function App() {
               </div>
             </div>
           ) : (
-            <div style={{ opacity: 0.5, fontSize: 12, marginTop: 10 }}>
-              Click a log row to inspect
-            </div>
+            <div style={{ opacity: 0.5 }}>Select a log</div>
           )}
         </div>
 
-        {/* VOLUME */}
-        <div style={{
-          background: "white",
-          borderRadius: 8,
-          padding: 15
-        }}>
+        {/* VOLUME CHART (UPGRADED) */}
+        <div style={{ background: "white", padding: 15, borderRadius: 8 }}>
           <h3>Volume</h3>
 
-          <div style={{
-            display: "flex",
-            alignItems: "flex-end",
-            height: 240,
-            gap: 6,
-            marginTop: 10,
-            border: "1px solid #eee",
-            padding: 10
-          }}>
-            {volume.map((v, i) => (
-              <div
+          <svg width="100%" height="200" viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
+            {/* grid lines */}
+            {[0.25, 0.5, 0.75].map((g, i) => (
+              <line
                 key={i}
-                style={{
-                  width: 16,
-                  height: Math.max((v.count / maxVolume) * 200, 4),
-                  background: "#2EC7FF"
-                }}
+                x1="0"
+                x2={chartWidth}
+                y1={chartHeight * g}
+                y2={chartHeight * g}
+                stroke="#eee"
               />
             ))}
-          </div>
+
+            {/* line */}
+            <polyline
+              fill="none"
+              stroke="#2EC7FF"
+              strokeWidth="2"
+              points={points}
+            />
+          </svg>
         </div>
 
         {/* POLICIES */}
         <div style={{
           gridColumn: "1 / 4",
           background: "white",
-          borderRadius: 8,
-          padding: 15
+          padding: 15,
+          borderRadius: 8
         }}>
           <h3>Policies</h3>
 
           <pre style={{
             background: "#f4f4f4",
             padding: 12,
-            fontSize: 12,
-            overflowX: "auto"
+            fontSize: 12
           }}>
 {`if (hazard > 0.9) {
   EMERGENCY_STOP();
