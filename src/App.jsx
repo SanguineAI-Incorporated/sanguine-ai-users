@@ -9,8 +9,11 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Dashboard />} />
+      <Route path="/profile" element={<Profile />} />
       <Route path="/engine-editor" element={<EngineEditor />} />
       <Route path="/documentation" element={<Documentation />} />
     </Routes>
   );
 }
+
+
