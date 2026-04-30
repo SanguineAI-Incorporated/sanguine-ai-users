@@ -55,7 +55,7 @@ const mockLogs = (() => {
 export default function App() {
   const [selectedLog, setSelectedLog] = useState(null);
   const [policyFilter, setPolicyFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("30d");
+  const [dateFilter, setDateFilter] = useState("24h");
 
   const hashDeviceId = (id = "") => {
     let hash = 0;
@@ -132,8 +132,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#C8D8E4] text-black">
 
-      {/* HEADER */}
-      <div className="fixed top-0 left-0 right-0 h-16 flex justify-between items-center px-7 z-10 bg-white/60 backdrop-blur-xl border-b">
+      {/* HEADER (brand-aligned with logo background) */}
+      <div className="fixed top-0 left-0 right-0 h-16 flex justify-between items-center px-7 z-10 bg-[#C8D8E4]/80 backdrop-blur-xl border-b border-black/10">
         <div className="font-bold">SANGUINE AI</div>
 
         <div className="flex gap-6 text-[11px] uppercase">
@@ -172,7 +172,7 @@ export default function App() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
           {/* VOLUME */}
-          <Card className="col-span-1 md:col-span-2 border border-black/15">
+          <Card className="col-span-1 md:col-span-2 border border-black/15 bg-white/85">
             <CardContent>
               <h2 className="text-xl mb-4">Volume</h2>
 
@@ -190,14 +190,14 @@ export default function App() {
           </Card>
 
           {/* LOGS */}
-          <Card className="border border-black/15">
+          <Card className="border border-black/15 bg-white/90">
             <CardContent>
               <h2 className="text-xl mb-4">Logs</h2>
 
               <div className="overflow-auto max-h-96">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left border-b border-black/10">
+                    <tr className="text-left border-b border-black/15 bg-white/40">
                       <th className="p-2">Time</th>
                       <th className="p-2">Device</th>
                       <th className="p-2">Hazard</th>
@@ -213,14 +213,20 @@ export default function App() {
                         <tr
                           key={log.timestamp + i}
                           onClick={() => setSelectedLog(log)}
-                          className="border-b border-black/5 cursor-pointer hover:bg-black/5"
+                          className="border-b border-black/5 cursor-pointer hover:bg-white/40"
                         >
                           <td className="p-2">
                             {new Date(log.timestamp).toLocaleString()}
                           </td>
-                          <td className="p-2">{hashDeviceId(log.data.device_id)}</td>
-                          <td className="p-2">{log.data.hazard_present.toFixed(2)}</td>
-                          <td className="p-2 text-xs">{policy.status}</td>
+                          <td className="p-2">
+                            {hashDeviceId(log.data.device_id)}
+                          </td>
+                          <td className="p-2">
+                            {log.data.hazard_present.toFixed(2)}
+                          </td>
+                          <td className="p-2 text-xs">
+                            {policy.status}
+                          </td>
                         </tr>
                       );
                     })}
@@ -231,7 +237,7 @@ export default function App() {
           </Card>
 
           {/* DETAILS */}
-          <Card className="border border-black/15">
+          <Card className="border border-black/15 bg-white/90">
             <CardContent>
               <h2 className="text-xl mb-4">Log Details</h2>
 
@@ -251,25 +257,6 @@ export default function App() {
                     <div className="text-gray-600 text-xs">
                       {checkPolicy(selectedLog).rule}
                     </div>
-                  </div>
-
-                  <div className="border-t pt-3">
-                    <div className="font-bold mb-2">Policy Engine View</div>
-                    <pre className="text-xs bg-white/70 p-2 rounded border overflow-auto">
-{`function checkPolicy(log) {
-  const h = log.hazard;
-  const cmd = log.command;
-  const occlusion = log.occlusion;
-
-  if (h > 0.9 || occlusion > 0.9)
-    return "EMERGENCY STOP";
-
-  if (h > 0.8 && cmd === "STOP")
-    return "EMERGENCY STOP";
-
-  return "CLEAR";
-}`}
-                    </pre>
                   </div>
 
                 </div>
