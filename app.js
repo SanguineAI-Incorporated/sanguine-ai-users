@@ -29,12 +29,6 @@ const mockLogs = (() => {
     const hazard = Math.random();
     const hasCommand = Math.random() < 0.6;
 
-    const command = hasCommand
-      ? hazard > 0.75
-        ? "STOP"
-        : commands[Math.floor(Math.random() * commands.length)]
-      : null;
-
     logs.push({
       timestamp: date.toISOString(),
       data: {
@@ -43,9 +37,11 @@ const mockLogs = (() => {
         vision: { occlusion: Math.random() },
         hazard_present: hazard,
         voice: {
-          operator_command_label: command,
-          command_confidence: hasCommand ? Math.random() : null,
-          operator_verified: hasCommand ? Math.random() : null,
+          operator_command_label: hasCommand
+            ? hazard > 0.75
+              ? "STOP"
+              : commands[Math.floor(Math.random() * commands.length)]
+            : null,
         },
       },
     });
@@ -61,7 +57,7 @@ export default function App() {
   const [policyFilter, setPolicyFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("30d");
 
-  const hashDeviceId = (id) => {
+  const hashDeviceId = (id = "") => {
     let hash = 0;
     for (let i = 0; i < id.length; i++) {
       hash = (hash << 5) - hash + id.charCodeAt(i);
@@ -70,12 +66,12 @@ export default function App() {
     return "dev_" + Math.abs(hash).toString(16);
   };
 
-  /* ---------------- POLICY LOGIC ---------------- */
+  /* ---------------- POLICY ENGINE ---------------- */
 
   const checkPolicy = (log) => {
-    const h = log.data.hazard_present;
-    const cmd = log.data.voice.operator_command_label;
-    const occlusion = log.data.vision.occlusion;
+    const h = log?.data?.hazard_present ?? 0;
+    const cmd = log?.data?.voice?.operator_command_label;
+    const occlusion = log?.data?.vision?.occlusion ?? 0;
 
     if (h > 0.9 || occlusion > 0.9) {
       return {
@@ -93,7 +89,7 @@ export default function App() {
 
     return {
       status: "CLEAR",
-      rule: "no policy violations",
+      rule: "no violations detected",
     };
   };
 
@@ -131,9 +127,10 @@ export default function App() {
       buckets[key] = (buckets[key] || 0) + 1;
     });
 
-    return Object.entries(buckets)
-      .sort((a, b) => new Date(a[0]) - new Date(b[0]))
-      .map(([hour, count]) => ({ hour, count }));
+    return Object.entries(buckets).map(([hour, count]) => ({
+      hour,
+      count,
+    }));
   }, [filteredLogs]);
 
   /* ---------------- UI ---------------- */
@@ -170,8 +167,8 @@ export default function App() {
             onChange={(e) => setDateFilter(e.target.value)}
             className="border p-1"
           >
-            <option value="3d">Last 3 days</option>
-            <option value="30d">Last 30 days</option>
+            <option value="3d">3 days</option>
+            <option value="30d">30 days</option>
           </select>
         </div>
 
@@ -189,7 +186,7 @@ export default function App() {
                       <th className="p-2">Time</th>
                       <th className="p-2">Device</th>
                       <th className="p-2">Hazard</th>
-                      <th className="p-2">Status</th>
+                      <th className="p-2">Policy</th>
                     </tr>
                   </thead>
 
@@ -200,8 +197,8 @@ export default function App() {
                       return (
                         <tr
                           key={log.timestamp + i}
-                          className="border-b cursor-pointer hover:bg-gray-100"
                           onClick={() => setSelectedLog(log)}
+                          className="border-b cursor-pointer hover:bg-gray-100"
                         >
                           <td className="p-2">
                             {new Date(log.timestamp).toLocaleString()}
@@ -212,16 +209,8 @@ export default function App() {
                           <td className="p-2">
                             {log.data.hazard_present.toFixed(2)}
                           </td>
-                          <td className="p-2">
-                            <span
-                              className={
-                                policy.status === "EMERGENCY STOP"
-                                  ? "text-red-600 font-semibold"
-                                  : "text-green-600"
-                              }
-                            >
-                              {policy.status}
-                            </span>
+                          <td className="p-2 text-xs">
+                            {policy.status}
                           </td>
                         </tr>
                       );
@@ -232,40 +221,36 @@ export default function App() {
             </CardContent>
           </Card>
 
-          {/* DETAILS */}
+          {/* DETAILS + POLICY ENGINE VIEW */}
           <Card>
             <CardContent className="p-4">
               <h2 className="text-xl mb-4">Log Details</h2>
 
               {selectedLog ? (
-                <div className="text-sm space-y-3">
+                <div className="text-sm space-y-4">
 
                   <div>
                     <div className="font-bold">Metadata</div>
                     <div>Time: {selectedLog.timestamp}</div>
-                    <div>Device: {hashDeviceId(selectedLog.data.device_id)}</div>
+                    <div>
+                      Device: {hashDeviceId(selectedLog.data.device_id)}
+                    </div>
                     <div>Location: {selectedLog.data.location_id}</div>
                   </div>
 
                   <div>
-                    <div className="font-bold">Vision</div>
-                    <div>Occlusion: {selectedLog.data.vision.occlusion.toFixed(2)}</div>
-                  </div>
-
-                  <div>
-                    <div className="font-bold">Voice</div>
-                    <div>
-                      Command: {selectedLog.data.voice.operator_command_label || "None"}
+                    <div className="font-bold">Policy Result</div>
+                    <div>{checkPolicy(selectedLog).status}</div>
+                    <div className="text-gray-600 text-xs">
+                      {checkPolicy(selectedLog).rule}
                     </div>
                   </div>
 
-                  {/* ✅ ORIGINAL POLICY SECTION (VISIBLE + FIXED) */}
-                  <div className="mt-6 border-t pt-4">
-                    <div className="font-bold text-sm mb-2">
-                      Policy Engine
-                    </div>
+                  {/* ✅ POLICY ENGINE VIEW (RESTORED) */}
+                  <div className="border-t pt-3">
+                    <div className="font-bold mb-2">Policy Engine View</div>
 
-                    <pre className="text-xs bg-white/60 p-2 rounded border overflow-x-auto">
+                    <pre className="text-xs bg-white/70 p-2 rounded border overflow-auto">
 {`function checkPolicy(log) {
   const h = log.hazard;
   const cmd = log.command;
@@ -280,19 +265,6 @@ export default function App() {
   return "CLEAR";
 }`}
                     </pre>
-
-                    {selectedLog && (
-                      <div className="mt-2 text-sm">
-                        <div>
-                          <b>Result:</b>{" "}
-                          {checkPolicy(selectedLog).status}
-                        </div>
-                        <div>
-                          <b>Rule:</b>{" "}
-                          {checkPolicy(selectedLog).rule}
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                 </div>
@@ -307,14 +279,16 @@ export default function App() {
             <CardContent className="p-4">
               <h2 className="text-xl mb-4">Volume</h2>
 
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={volumeData}>
-                  <XAxis dataKey="hour" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke="#2EC7FF" />
-                </LineChart>
-              </ResponsiveContainer>
+              <div style={{ width: "100%", height: 300 }}>
+                <ResponsiveContainer>
+                  <LineChart data={volumeData}>
+                    <XAxis dataKey="hour" />
+                    <YAxis />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="count" stroke="#2EC7FF" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </CardContent>
           </Card>
 
