@@ -10,37 +10,28 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-/* ---------------- MOCK RAW SENSOR LOGS ---------------- */
+/* ---------------- RAW SENSOR LOGS (mock) ---------------- */
 
 const rawLogs = (() => {
-  const devices = ["robot-alpha", "robot-beta"];
-  const locations = ["home-1", "home-2"];
-  const commands = ["MOVE", "STOP", "ASSIST"];
-
   const logs = [];
-  const start = new Date("2026-05-17T00:00:00Z").getTime();
-  const end = new Date("2026-05-18T00:00:00Z").getTime();
+  const start = Date.now() - 1000 * 60 * 60 * 6;
 
-  for (let t = start; t <= end; t += 1000 * 60 * 10) {
-    const date = new Date(t);
-
+  for (let i = 0; i < 60; i++) {
     const occlusion = Math.random();
-    const hazard = Math.random();
     const motion = Math.random();
+    const command =
+      Math.random() > 0.6
+        ? ["MOVE", "STOP", "ASSIST"][Math.floor(Math.random() * 3)]
+        : null;
 
     logs.push({
-      timestamp: date.toISOString(),
+      timestamp: new Date(start + i * 60000).toISOString(),
 
       raw: {
         sensors: {
           vision: { occlusion },
           motion: { velocity: motion },
-          audio: {
-            command:
-              Math.random() > 0.6
-                ? commands[Math.floor(Math.random() * commands.length)]
-                : null,
-          },
+          audio: { command },
         },
       },
     });
@@ -49,35 +40,36 @@ const rawLogs = (() => {
   return logs;
 })();
 
-/* ---------------- INFERENCE LAYER ---------------- */
+/* ---------------- INFERENCE STACK ---------------- */
 
 function infer(log) {
   const occlusion = log.raw.sensors.vision.occlusion;
   const motion = log.raw.sensors.motion.velocity;
   const command = log.raw.sensors.audio.command;
 
-  const hazard = occlusion * 0.6 + (1 - motion) * 0.4;
+  const hazard_score = occlusion * 0.6 + (1 - motion) * 0.4;
+  const trust_score = 1 - occlusion * 0.5;
+  const stability_index = 1 - Math.abs(0.5 - motion);
 
-  const stability = 1 - Math.abs(0.5 - motion);
-
-  const trust = 1 - occlusion * 0.5;
-
-  const taskSuccess = command === "ASSIST" && hazard < 0.6;
+  const task_success = command === "ASSIST" && hazard_score < 0.6;
+  const safety_event = hazard_score > 0.75;
 
   return {
     derived_features: {
-      hazard_score: hazard,
-      stability_index: stability,
-      trust_score: trust,
+      hazard_score,
+      trust_score,
+      stability_index,
     },
+
     outcomes: {
-      task_success: taskSuccess,
-      safety_event: hazard > 0.75,
+      task_success,
+      safety_event,
     },
+
     reward_proxies: {
-      safety_reward: 1 - hazard,
-      task_reward: taskSuccess ? 1 : 0,
-      comfort_reward: stability,
+      safety_reward: 1 - hazard_score,
+      task_reward: task_success ? 1 : 0,
+      comfort_reward: stability_index,
     },
   };
 }
@@ -86,18 +78,15 @@ function infer(log) {
 
 export default function Dashboard() {
   const [selected, setSelected] = useState(null);
+  const [hovered, setHovered] = useState(null);
 
   const episodes = useMemo(() => {
-    return rawLogs.map((log, i) => {
-      const inference = infer(log);
-
-      return {
-        id: `ep-${i}`,
-        raw: log.raw,
-        timestamp: log.timestamp,
-        ...inference,
-      };
-    });
+    return rawLogs.map((log, i) => ({
+      id: `ep-${i}`,
+      timestamp: log.timestamp,
+      raw: log.raw,
+      ...infer(log),
+    }));
   }, []);
 
   const volumeData = useMemo(() => {
@@ -107,6 +96,21 @@ export default function Dashboard() {
       trust: e.derived_features.trust_score,
     }));
   }, [episodes]);
+
+  /* ---------------- EXPORT ---------------- */
+
+  const exportJSONL = () => {
+    const jsonl = episodes.map((e) => JSON.stringify(e)).join("\n");
+    const blob = new Blob([jsonl], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "behavioral_dataset.jsonl";
+    a.click();
+
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="min-h-screen bg-[#C8D8E4] text-black">
@@ -124,22 +128,22 @@ export default function Dashboard() {
 
       <div className="pt-24 p-6 max-w-7xl mx-auto space-y-6">
 
-        {/* SYSTEM VIEW */}
+        {/* SYSTEM HEADER */}
         <Card>
           <CardContent>
-            <h2 className="text-xl mb-4">Behavioral Inference System</h2>
+            <h2 className="text-xl">Behavioral Dataset Engine</h2>
             <p className="text-sm text-gray-600">
-              Raw sensor logs → structured behavioral records → probabilistic inference → training-ready episodes
+              Raw sensor logs → behavioral records → probabilistic inference → ML-ready episodes
             </p>
           </CardContent>
         </Card>
 
-        {/* SIGNAL OVERVIEW */}
+        {/* SIGNALS */}
         <Card>
           <CardContent>
             <h2 className="text-xl mb-4">System Signals</h2>
 
-            <div style={{ width: "100%", height: 250 }}>
+            <div style={{ width: "100%", height: 240 }}>
               <ResponsiveContainer>
                 <LineChart data={volumeData}>
                   <XAxis dataKey="index" />
@@ -153,7 +157,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* EPISODE LIST */}
+        {/* EPISODES */}
         <Card>
           <CardContent>
             <h2 className="text-xl mb-4">Behavioral Episodes</h2>
@@ -163,11 +167,12 @@ export default function Dashboard() {
                 <div
                   key={e.id}
                   onClick={() => setSelected(e)}
+                  onMouseEnter={() => setHovered(e)}
+                  onMouseLeave={() => setHovered(null)}
                   className="p-3 border cursor-pointer hover:bg-white/50"
                 >
                   <div className="flex justify-between text-sm">
                     <span>{e.id}</span>
-
                     <span
                       className={
                         e.outcomes.safety_event
@@ -224,7 +229,40 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+        {/* EXPORT */}
+        <Card>
+          <CardContent>
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-xl">Dataset Export</h2>
+                <p className="text-sm text-gray-600">
+                  Export episodes as JSONL for ML / RL training pipelines
+                </p>
+              </div>
+
+              <button
+                onClick={exportJSONL}
+                className="px-4 py-2 bg-black text-white text-sm hover:bg-gray-800"
+              >
+                Export JSONL
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+
       </div>
+
+      {/* HOVER JSON INSPECTOR */}
+      {hovered && (
+        <div className="fixed right-6 top-24 w-[420px] max-h-[70vh] overflow-auto bg-black text-green-200 text-[10px] p-3 border border-black/30 shadow-xl z-50">
+          <div className="text-white mb-2 font-bold">
+            Episode JSON (hover)
+          </div>
+          <pre className="whitespace-pre-wrap">
+            {JSON.stringify(hovered, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
