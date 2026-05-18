@@ -238,34 +238,83 @@ export default function Dashboard() {
           </Card>
 
           {/* DETAILS */}
-          <Card className="border border-black/15 bg-white/90">
-            <CardContent>
-              <h2 className="text-xl mb-4">Log Details</h2>
+<Card className="border border-black/15 bg-white/90">
+  <CardContent>
+    <h2 className="text-xl mb-4">Agent Attestation</h2>
 
-              {selectedLog ? (
-                <div className="text-sm space-y-4">
+    {selectedLog ? (
+      <div className="text-sm space-y-4">
 
-                  <div>
-                    <div className="font-bold">Metadata</div>
-                    <div>Time: {selectedLog.timestamp}</div>
-                    <div>Device: {hashDeviceId(selectedLog.data.device_id)}</div>
-                    <div>Location: {selectedLog.data.location_id}</div>
-                  </div>
+        {/* Identity + Signature Layer */}
+        <div>
+          <div className="font-bold">Cryptographic Identity</div>
+          <div className="text-xs text-gray-600">
+            agent_id: {hashDeviceId(selectedLog.data.device_id)}
+          </div>
+          <div className="text-xs text-gray-600">
+            signature: sha256(attestation:{selectedLog.timestamp})
+          </div>
+        </div>
 
-                  <div>
-                    <div className="font-bold">Policy Result</div>
-                    <div>{checkPolicy(selectedLog).status}</div>
-                    <div className="text-gray-600 text-xs">
-                      {checkPolicy(selectedLog).rule}
-                    </div>
-                  </div>
+        {/* Behavioral Summary */}
+        <div>
+          <div className="font-bold">Behavioral Attestation</div>
+          <div>status: {checkPolicy(selectedLog).status}</div>
+          <div className="text-xs text-gray-600">
+            rule: {checkPolicy(selectedLog).rule}
+          </div>
+          <div className="text-xs text-gray-600">
+            hazard_score: {selectedLog.data.hazard_present.toFixed(3)}
+          </div>
+        </div>
 
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500">Select a log</p>
-              )}
-            </CardContent>
-          </Card>
+        {/* Environmental Context */}
+        <div>
+          <div className="font-bold">Environmental Context</div>
+          <div className="text-xs text-gray-600">
+            location: {selectedLog.data.location_id}
+          </div>
+          <div className="text-xs text-gray-600">
+            vision.occlusion: {selectedLog.data.vision.occlusion.toFixed(3)}
+          </div>
+        </div>
+
+        {/* System Constraints */}
+        <div>
+          <div className="font-bold">System Constraints</div>
+          <div className="text-xs text-gray-600">
+            inference_mode: real-time-stream
+          </div>
+          <div className="text-xs text-gray-600">
+            model_stack: CNN + Trajectory Encoder + Temporal Transformer
+          </div>
+        </div>
+
+        {/* API Output */}
+        <div>
+          <div className="font-bold">API Output</div>
+          <pre className="text-xs bg-black/5 p-2 rounded overflow-auto">
+{JSON.stringify(
+  {
+    agent_id: hashDeviceId(selectedLog.data.device_id),
+    timestamp: selectedLog.timestamp,
+    hazard_score: selectedLog.data.hazard_present,
+    occlusion: selectedLog.data.vision.occlusion,
+    policy: checkPolicy(selectedLog).status,
+    attestation_type: "signed_behavioral_metadata",
+  },
+  null,
+  2
+)}
+          </pre>
+        </div>
+
+      </div>
+    ) : (
+      <p className="text-sm text-gray-500">Select a log</p>
+    )}
+  </CardContent>
+</Card>
 
         </div>
       </div>
