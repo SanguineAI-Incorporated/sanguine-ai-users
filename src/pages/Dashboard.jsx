@@ -10,39 +10,69 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-/* ---------------- MOCK DATA ---------------- */
+/* ---------------- MOCK DATA (Agent Attestation API Schema) ---------------- */
 
 const mockLogs = (() => {
-  const devices = ["robot-1", "robot-2", "robot-3"];
+  const agents = ["agent-alpha", "agent-beta", "agent-gamma"];
   const locations = ["zone-a", "zone-b", "zone-c"];
-  const commands = ["MOVE", "STOP"];
 
   const logs = [];
   const start = new Date("2025-04-27T08:00:00Z").getTime();
   const end = new Date("2026-04-29T18:00:00Z").getTime();
 
-  for (let t = start; t <= end; t += 1000 * 60 * 5) {
+  for (let t = start; t <= end; t += 1000 * 60 * 30) {
     const date = new Date(t);
-    const hour = date.getUTCHours();
 
-    if (!(hour === 10 || hour === 14) && Math.random() < 0.7) continue;
+    if (Math.random() < 0.75) continue;
 
     const hazard = Math.random();
-    const hasCommand = Math.random() < 0.6;
+    const occlusion = Math.random();
+    const trajectoryRisk = Math.random();
+
+    const agentId = agents[Math.floor(Math.random() * agents.length)];
+
+    const signature = btoa(`${agentId}:${t}:${hazard}:${occlusion}`).slice(0, 24);
 
     logs.push({
       timestamp: date.toISOString(),
+
       data: {
-        device_id: devices[Math.floor(Math.random() * devices.length)],
-        location_id: locations[Math.floor(Math.random() * locations.length)],
-        vision: { occlusion: Math.random() },
-        hazard_present: hazard,
-        voice: {
-          operator_command_label: hasCommand
-            ? hazard > 0.75
-              ? "STOP"
-              : commands[Math.floor(Math.random() * commands.length)]
-            : null,
+        identity: {
+          agent_id: agentId,
+          signature,
+        },
+
+        sensors: {
+          vision: {
+            occlusion,
+            confidence: 0.85 + Math.random() * 0.1,
+          },
+
+          audio: {
+            speech_detected: Math.random() < 0.3,
+            command_confidence: Math.random(),
+          },
+
+          trajectory: {
+            risk_score: trajectoryRisk,
+            velocity: Math.random() * 2,
+            direction_change: Math.random(),
+          },
+        },
+
+        environment: {
+          location_id: locations[Math.floor(Math.random() * locations.length)],
+          lighting_condition: Math.random() > 0.5 ? "normal" : "low_light",
+        },
+
+        inference: {
+          hazard_score: hazard,
+          model_confidence: 0.8 + Math.random() * 0.2,
+        },
+
+        policy: {
+          triggered: hazard > 0.85 || occlusion > 0.9,
+          mode: "real-time-attestation",
         },
       },
     });
@@ -67,22 +97,25 @@ export default function Dashboard() {
     return "dev_" + Math.abs(hash).toString(16);
   };
 
-  const checkPolicy = (log) => {
-    const h = log?.data?.hazard_present ?? 0;
-    const cmd = log?.data?.voice?.operator_command_label;
-    const occlusion = log?.data?.vision?.occlusion ?? 0;
+  /* ---------------- POLICY ENGINE (UPDATED) ---------------- */
 
-    if (h > 0.9 || occlusion > 0.9) {
+  const checkPolicy = (log) => {
+    const hazard = log?.data?.inference?.hazard_score ?? 0;
+    const occlusion = log?.data?.sensors?.vision?.occlusion ?? 0;
+    const trajectory = log?.data?.sensors?.trajectory?.risk_score ?? 0;
+    const triggered = log?.data?.policy?.triggered ?? false;
+
+    if (hazard > 0.9 || occlusion > 0.9 || trajectory > 0.95) {
       return {
         status: "EMERGENCY STOP",
-        rule: "hazard > 0.9 OR occlusion > 0.9",
+        rule: "hazard > 0.9 OR occlusion > 0.9 OR trajectory risk > 0.95",
       };
     }
 
-    if (h > 0.8 && cmd === "STOP") {
+    if (triggered) {
       return {
         status: "EMERGENCY STOP",
-        rule: "hazard > 0.8 AND STOP command",
+        rule: "policy.triggered = true",
       };
     }
 
@@ -91,6 +124,8 @@ export default function Dashboard() {
       rule: "no violations detected",
     };
   };
+
+  /* ---------------- FILTERED LOGS ---------------- */
 
   const filteredLogs = useMemo(() => {
     const now = Date.now();
@@ -116,6 +151,8 @@ export default function Dashboard() {
     return logs;
   }, [policyFilter, dateFilter]);
 
+  /* ---------------- VOLUME DATA ---------------- */
+
   const volumeData = useMemo(() => {
     const buckets = {};
 
@@ -129,6 +166,8 @@ export default function Dashboard() {
       count,
     }));
   }, [filteredLogs]);
+
+  /* ---------------- UI ---------------- */
 
   return (
     <div className="min-h-screen bg-[#C8D8E4] text-black">
@@ -200,7 +239,7 @@ export default function Dashboard() {
                   <thead>
                     <tr className="text-left border-b border-black/15 bg-white/40">
                       <th className="p-2">Time</th>
-                      <th className="p-2">Device</th>
+                      <th className="p-2">Agent</th>
                       <th className="p-2">Hazard</th>
                       <th className="p-2">Policy</th>
                     </tr>
@@ -219,12 +258,15 @@ export default function Dashboard() {
                           <td className="p-2">
                             {new Date(log.timestamp).toLocaleString()}
                           </td>
+
                           <td className="p-2">
-                            {hashDeviceId(log.data.device_id)}
+                            {hashDeviceId(log.data.identity.agent_id)}
                           </td>
+
                           <td className="p-2">
-                            {log.data.hazard_present.toFixed(2)}
+                            {log.data.inference.hazard_score.toFixed(2)}
                           </td>
+
                           <td className="p-2 text-xs">
                             {policy.status}
                           </td>
@@ -237,84 +279,65 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          {/* DETAILS */}
-<Card className="border border-black/15 bg-white/90">
-  <CardContent>
-    <h2 className="text-xl mb-4">Agent Attestation</h2>
+          {/* DETAILS (already upgraded earlier) */}
+          <Card className="border border-black/15 bg-white/90">
+            <CardContent>
+              <h2 className="text-xl mb-4">Agent Attestation</h2>
 
-    {selectedLog ? (
-      <div className="text-sm space-y-4">
+              {selectedLog ? (
+                <div className="text-sm space-y-4">
 
-        {/* Identity + Signature Layer */}
-        <div>
-          <div className="font-bold">Cryptographic Identity</div>
-          <div className="text-xs text-gray-600">
-            agent_id: {hashDeviceId(selectedLog.data.device_id)}
-          </div>
-          <div className="text-xs text-gray-600">
-            signature: sha256(attestation:{selectedLog.timestamp})
-          </div>
-        </div>
+                  <div>
+                    <div className="font-bold">Cryptographic Identity</div>
+                    <div className="text-xs text-gray-600">
+                      agent_id: {hashDeviceId(selectedLog.data.identity.agent_id)}
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      signature: {selectedLog.data.identity.signature}
+                    </div>
+                  </div>
 
-        {/* Behavioral Summary */}
-        <div>
-          <div className="font-bold">Behavioral Attestation</div>
-          <div>status: {checkPolicy(selectedLog).status}</div>
-          <div className="text-xs text-gray-600">
-            rule: {checkPolicy(selectedLog).rule}
-          </div>
-          <div className="text-xs text-gray-600">
-            hazard_score: {selectedLog.data.hazard_present.toFixed(3)}
-          </div>
-        </div>
+                  <div>
+                    <div className="font-bold">Behavioral Attestation</div>
+                    <div>{checkPolicy(selectedLog).status}</div>
+                    <div className="text-xs text-gray-600">
+                      {checkPolicy(selectedLog).rule}
+                    </div>
+                  </div>
 
-        {/* Environmental Context */}
-        <div>
-          <div className="font-bold">Environmental Context</div>
-          <div className="text-xs text-gray-600">
-            location: {selectedLog.data.location_id}
-          </div>
-          <div className="text-xs text-gray-600">
-            vision.occlusion: {selectedLog.data.vision.occlusion.toFixed(3)}
-          </div>
-        </div>
+                  <div>
+                    <div className="font-bold">Environment</div>
+                    <div className="text-xs text-gray-600">
+                      location: {selectedLog.data.environment.location_id}
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      lighting: {selectedLog.data.environment.lighting_condition}
+                    </div>
+                  </div>
 
-        {/* System Constraints */}
-        <div>
-          <div className="font-bold">System Constraints</div>
-          <div className="text-xs text-gray-600">
-            inference_mode: real-time-stream
-          </div>
-          <div className="text-xs text-gray-600">
-            model_stack: CNN + Trajectory Encoder + Temporal Transformer
-          </div>
-        </div>
+                  <div>
+                    <div className="font-bold">Inference</div>
+                    <div className="text-xs text-gray-600">
+                      hazard_score: {selectedLog.data.inference.hazard_score.toFixed(3)}
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      confidence: {selectedLog.data.inference.model_confidence.toFixed(2)}
+                    </div>
+                  </div>
 
-        {/* API Output */}
-        <div>
-          <div className="font-bold">API Output</div>
-          <pre className="text-xs bg-black/5 p-2 rounded overflow-auto">
-{JSON.stringify(
-  {
-    agent_id: hashDeviceId(selectedLog.data.device_id),
-    timestamp: selectedLog.timestamp,
-    hazard_score: selectedLog.data.hazard_present,
-    occlusion: selectedLog.data.vision.occlusion,
-    policy: checkPolicy(selectedLog).status,
-    attestation_type: "signed_behavioral_metadata",
-  },
-  null,
-  2
-)}
-          </pre>
-        </div>
+                  <div>
+                    <div className="font-bold">System</div>
+                    <div className="text-xs text-gray-600">
+                      mode: {selectedLog.data.policy.mode}
+                    </div>
+                  </div>
 
-      </div>
-    ) : (
-      <p className="text-sm text-gray-500">Select a log</p>
-    )}
-  </CardContent>
-</Card>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Select a log</p>
+              )}
+            </CardContent>
+          </Card>
 
         </div>
       </div>
