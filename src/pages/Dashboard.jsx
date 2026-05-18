@@ -26,7 +26,6 @@ const rawLogs = (() => {
 
     logs.push({
       timestamp: new Date(start + i * 60000).toISOString(),
-
       raw: {
         sensors: {
           vision: { occlusion },
@@ -70,6 +69,13 @@ function infer(log) {
       safety_reward: 1 - hazard_score,
       task_reward: task_success ? 1 : 0,
       comfort_reward: stability_index,
+    },
+
+    attestation: {
+      verified: Math.random() > 0.2,
+      signature: "sig_" + Math.random().toString(16).slice(2),
+      hash: "hash_" + Math.random().toString(16).slice(2),
+      public_key_id: "key_robotics_fleet_01",
     },
   };
 }
@@ -131,10 +137,17 @@ export default function Dashboard() {
         {/* SYSTEM HEADER */}
         <Card>
           <CardContent>
-            <h2 className="text-xl">Behavioral Dataset Engine</h2>
-            <p className="text-sm text-gray-600">
-              Raw sensor logs → behavioral records → probabilistic inference → ML-ready episodes
+            <h2 className="text-xl font-semibold">
+              Behavioral Dataset Engine
+            </h2>
+
+            <p className="text-sm text-gray-600 mt-1">
+              Raw sensor logs → structured behavioral records → probabilistic inference → training-ready episodes
             </p>
+
+            <div className="mt-3 text-xs font-mono text-black/70">
+              Signed behavioral datasets for robotics RL, safety evaluation, and fleet analytics
+            </div>
           </CardContent>
         </Card>
 
@@ -172,16 +185,33 @@ export default function Dashboard() {
                   className="p-3 border cursor-pointer hover:bg-white/50"
                 >
                   <div className="flex justify-between text-sm">
+
                     <span>{e.id}</span>
-                    <span
-                      className={
-                        e.outcomes.safety_event
-                          ? "text-red-600"
-                          : "text-green-600"
-                      }
-                    >
-                      {e.outcomes.safety_event ? "RISK" : "SAFE"}
-                    </span>
+
+                    <div className="flex gap-2 items-center">
+
+                      <span
+                        className={
+                          e.outcomes.safety_event
+                            ? "text-red-600"
+                            : "text-green-600"
+                        }
+                      >
+                        {e.outcomes.safety_event ? "RISK" : "SAFE"}
+                      </span>
+
+                      <span
+                        className={
+                          e.attestation.verified
+                            ? "text-blue-600 text-xs"
+                            : "text-yellow-600 text-xs"
+                        }
+                      >
+                        {e.attestation.verified ? "VERIFIED" : "UNVERIFIED"}
+                      </span>
+
+                    </div>
+
                   </div>
 
                   <div className="text-xs text-gray-600">
@@ -200,7 +230,7 @@ export default function Dashboard() {
             <h2 className="text-xl mb-4">Episode Detail</h2>
 
             {selected ? (
-              <div className="text-sm space-y-3">
+              <div className="text-sm space-y-4">
 
                 <div>
                   <b>Derived Features</b>
@@ -222,6 +252,18 @@ export default function Dashboard() {
                   <div>Comfort: {selected.reward_proxies.comfort_reward.toFixed(2)}</div>
                 </div>
 
+                <div>
+                  <b>Attestation</b>
+                  <div>Verified: {String(selected.attestation.verified)}</div>
+                  <div>Public Key: {selected.attestation.public_key_id}</div>
+                  <div className="text-xs text-gray-600">
+                    Signature: {selected.attestation.signature}
+                  </div>
+                  <div className="text-xs text-gray-600">
+                    Hash: {selected.attestation.hash}
+                  </div>
+                </div>
+
               </div>
             ) : (
               <p className="text-sm text-gray-500">Select an episode</p>
@@ -236,7 +278,7 @@ export default function Dashboard() {
               <div>
                 <h2 className="text-xl">Dataset Export</h2>
                 <p className="text-sm text-gray-600">
-                  Export episodes as JSONL for ML / RL training pipelines
+                  Export signed behavioral episodes as JSONL for ML training
                 </p>
               </div>
 
@@ -252,17 +294,19 @@ export default function Dashboard() {
 
       </div>
 
-      {/* HOVER JSON INSPECTOR */}
+      {/* HOVER INSPECTOR */}
       {hovered && (
         <div className="fixed right-6 top-24 w-[420px] max-h-[70vh] overflow-auto bg-black text-green-200 text-[10px] p-3 border border-black/30 shadow-xl z-50">
           <div className="text-white mb-2 font-bold">
-            Episode JSON (hover)
+            Episode JSON
           </div>
+
           <pre className="whitespace-pre-wrap">
             {JSON.stringify(hovered, null, 2)}
           </pre>
         </div>
       )}
+
     </div>
   );
 }
