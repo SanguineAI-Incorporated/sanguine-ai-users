@@ -30,12 +30,10 @@ const mockLogs = (() => {
     const trajectoryRisk = Math.random();
 
     const agentId = agents[Math.floor(Math.random() * agents.length)];
-
     const signature = btoa(`${agentId}:${t}:${hazard}:${occlusion}`).slice(0, 24);
 
     logs.push({
       timestamp: date.toISOString(),
-
       data: {
         identity: {
           agent_id: agentId,
@@ -47,12 +45,10 @@ const mockLogs = (() => {
             occlusion,
             confidence: 0.85 + Math.random() * 0.1,
           },
-
           audio: {
             speech_detected: Math.random() < 0.3,
             command_confidence: Math.random(),
           },
-
           trajectory: {
             risk_score: trajectoryRisk,
             velocity: Math.random() * 2,
@@ -87,6 +83,7 @@ export default function Dashboard() {
   const [selectedLog, setSelectedLog] = useState(null);
   const [policyFilter, setPolicyFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("24h");
+  const [queryMode, setQueryMode] = useState("all");
 
   const hashDeviceId = (id = "") => {
     let hash = 0;
@@ -97,33 +94,55 @@ export default function Dashboard() {
     return "dev_" + Math.abs(hash).toString(16);
   };
 
-  /* ---------------- POLICY ENGINE (UPDATED) ---------------- */
+  /* ---------------- TRUST SCORE ---------------- */
 
-  const checkPolicy = (log) => {
+  const computeTrustScore = (log) => {
     const hazard = log?.data?.inference?.hazard_score ?? 0;
     const occlusion = log?.data?.sensors?.vision?.occlusion ?? 0;
     const trajectory = log?.data?.sensors?.trajectory?.risk_score ?? 0;
+    const confidence = log?.data?.inference?.model_confidence ?? 0;
     const triggered = log?.data?.policy?.triggered ?? false;
 
-    if (hazard > 0.9 || occlusion > 0.9 || trajectory > 0.95) {
-      return {
-        status: "EMERGENCY STOP",
-        rule: "hazard > 0.9 OR occlusion > 0.9 OR trajectory risk > 0.95",
-      };
-    }
+    let risk =
+      hazard * 0.4 +
+      occlusion * 0.25 +
+      trajectory * 0.25 +
+      (triggered ? 0.3 : 0);
 
-    if (triggered) {
-      return {
-        status: "EMERGENCY STOP",
-        rule: "policy.triggered = true",
-      };
-    }
+    let trust = (1 - risk) * 100 + confidence * 10;
+    trust = Math.max(0, Math.min(100, trust));
 
-    return {
-      status: "CLEAR",
-      rule: "no violations detected",
-    };
+    return Math.round(trust);
   };
+
+  /* ---------------- AGENT TRUST MAP ---------------- */
+
+  const agentTrustMap = useMemo(() => {
+    const map = new Map();
+
+    mockLogs.forEach((log) => {
+      const agentId = log?.data?.identity?.agent_id;
+      const trust = computeTrustScore(log);
+
+      if (!map.has(agentId)) {
+        map.set(agentId, { total: 0, count: 0 });
+      }
+
+      const entry = map.get(agentId);
+      entry.total += trust;
+      entry.count += 1;
+    });
+
+    const result = {};
+    map.forEach((value, key) => {
+      result[key] = {
+        avgTrust: Math.round(value.total / value.count),
+        count: value.count,
+      };
+    });
+
+    return result;
+  }, []);
 
   /* ---------------- FILTERED LOGS ---------------- */
 
@@ -141,22 +160,54 @@ export default function Dashboard() {
     );
 
     if (policyFilter === "triggered") {
-      logs = logs.filter((l) => checkPolicy(l).status !== "CLEAR");
+      logs = logs.filter((l) => computeTrustScore(l) < 60);
     }
 
     if (policyFilter === "clear") {
-      logs = logs.filter((l) => checkPolicy(l).status === "CLEAR");
+      logs = logs.filter((l) => computeTrustScore(l) >= 60);
     }
 
     return logs;
   }, [policyFilter, dateFilter]);
 
-  /* ---------------- VOLUME DATA ---------------- */
+  /* ---------------- QUERY ENGINE (DATASET EXPLORER) ---------------- */
+
+  const queriedLogs = useMemo(() => {
+    let logs = filteredLogs;
+
+    switch (queryMode) {
+      case "high_risk":
+        logs = logs.filter((l) => computeTrustScore(l) < 50);
+        break;
+
+      case "low_trust_agents":
+        logs = logs.filter((l) => {
+          const agent = l?.data?.identity?.agent_id;
+          return (agentTrustMap[agent]?.avgTrust ?? 100) < 60;
+        });
+        break;
+
+      case "anomalies":
+        logs = logs.filter((l) => {
+          const h = l?.data?.inference?.hazard_score ?? 0;
+          const o = l?.data?.sensors?.vision?.occlusion ?? 0;
+          return h > 0.85 && o > 0.85;
+        });
+        break;
+
+      default:
+        break;
+    }
+
+    return logs;
+  }, [filteredLogs, queryMode, agentTrustMap]);
+
+  /* ---------------- VOLUME ---------------- */
 
   const volumeData = useMemo(() => {
     const buckets = {};
 
-    filteredLogs.forEach((log) => {
+    queriedLogs.forEach((log) => {
       const key = log.timestamp.slice(0, 13);
       buckets[key] = (buckets[key] || 0) + 1;
     });
@@ -165,7 +216,7 @@ export default function Dashboard() {
       hour,
       count,
     }));
-  }, [filteredLogs]);
+  }, [queriedLogs]);
 
   /* ---------------- UI ---------------- */
 
@@ -207,6 +258,17 @@ export default function Dashboard() {
             <option value="3d">3 days</option>
             <option value="30d">30 days</option>
           </select>
+
+          <select
+            value={queryMode}
+            onChange={(e) => setQueryMode(e.target.value)}
+            className="border p-1"
+          >
+            <option value="all">All Data</option>
+            <option value="high_risk">High Risk Events</option>
+            <option value="low_trust_agents">Low Trust Agents</option>
+            <option value="anomalies">Anomalies</option>
+          </select>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -232,7 +294,7 @@ export default function Dashboard() {
           {/* LOGS */}
           <Card className="border border-black/15 bg-white/90">
             <CardContent>
-              <h2 className="text-xl mb-4">Logs</h2>
+              <h2 className="text-xl mb-4">Behavioral Stream</h2>
 
               <div className="overflow-auto max-h-96">
                 <table className="w-full text-sm">
@@ -240,14 +302,14 @@ export default function Dashboard() {
                     <tr className="text-left border-b border-black/15 bg-white/40">
                       <th className="p-2">Time</th>
                       <th className="p-2">Agent</th>
-                      <th className="p-2">Hazard</th>
+                      <th className="p-2">Trust</th>
                       <th className="p-2">Policy</th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {filteredLogs.map((log, i) => {
-                      const policy = checkPolicy(log);
+                    {queriedLogs.map((log, i) => {
+                      const trust = computeTrustScore(log);
 
                       return (
                         <tr
@@ -260,15 +322,22 @@ export default function Dashboard() {
                           </td>
 
                           <td className="p-2">
-                            {hashDeviceId(log.data.identity.agent_id)}
+                            <div className="flex flex-col">
+                              <span>
+                                {hashDeviceId(log.data.identity.agent_id)}
+                              </span>
+                              <span className="text-[10px] text-gray-500">
+                                trust:{" "}
+                                {agentTrustMap[log.data.identity.agent_id]
+                                  ?.avgTrust ?? "—"}
+                              </span>
+                            </div>
                           </td>
 
-                          <td className="p-2">
-                            {log.data.inference.hazard_score.toFixed(2)}
-                          </td>
+                          <td className="p-2">{trust}</td>
 
                           <td className="p-2 text-xs">
-                            {policy.status}
+                            {trust < 60 ? "FLAGGED" : "CLEAR"}
                           </td>
                         </tr>
                       );
@@ -279,7 +348,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          {/* DETAILS (already upgraded earlier) */}
+          {/* DETAILS */}
           <Card className="border border-black/15 bg-white/90">
             <CardContent>
               <h2 className="text-xl mb-4">Agent Attestation</h2>
@@ -288,20 +357,22 @@ export default function Dashboard() {
                 <div className="text-sm space-y-4">
 
                   <div>
-                    <div className="font-bold">Cryptographic Identity</div>
+                    <div className="font-bold">Identity</div>
                     <div className="text-xs text-gray-600">
-                      agent_id: {hashDeviceId(selectedLog.data.identity.agent_id)}
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      signature: {selectedLog.data.identity.signature}
+                      agent: {hashDeviceId(selectedLog.data.identity.agent_id)}
                     </div>
                   </div>
 
                   <div>
-                    <div className="font-bold">Behavioral Attestation</div>
-                    <div>{checkPolicy(selectedLog).status}</div>
+                    <div className="font-bold">Trust Score</div>
                     <div className="text-xs text-gray-600">
-                      {checkPolicy(selectedLog).rule}
+                      event trust: {computeTrustScore(selectedLog)}
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      agent avg:{" "}
+                      {agentTrustMap[
+                        selectedLog.data.identity.agent_id
+                      ]?.avgTrust ?? "—"}
                     </div>
                   </div>
 
@@ -309,26 +380,6 @@ export default function Dashboard() {
                     <div className="font-bold">Environment</div>
                     <div className="text-xs text-gray-600">
                       location: {selectedLog.data.environment.location_id}
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      lighting: {selectedLog.data.environment.lighting_condition}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="font-bold">Inference</div>
-                    <div className="text-xs text-gray-600">
-                      hazard_score: {selectedLog.data.inference.hazard_score.toFixed(3)}
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      confidence: {selectedLog.data.inference.model_confidence.toFixed(2)}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="font-bold">System</div>
-                    <div className="text-xs text-gray-600">
-                      mode: {selectedLog.data.policy.mode}
                     </div>
                   </div>
 
