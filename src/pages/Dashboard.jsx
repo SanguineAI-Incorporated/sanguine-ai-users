@@ -296,14 +296,16 @@ export default function Dashboard() {
 
       {/* HOVER INSPECTOR */}
       {hovered && (
-        <div className="fixed right-6 top-24 w-[420px] max-h-[70vh] overflow-auto bg-black text-green-200 text-[10px] p-3 border border-black/30 shadow-xl z-50">
-          <div className="text-white mb-2 font-bold">
+        <div className="fixed right-6 top-24 w-[420px] max-h-[70vh] overflow-auto bg-[#C8D8E4] text-black text-[10px] p-3 border border-black/10 shadow-xl z-50 rounded-lg backdrop-blur-xl">
+          
+          <div className="mb-2 font-bold text-black">
             Episode JSON
           </div>
-
-          <pre className="whitespace-pre-wrap">
+      
+          <pre className="whitespace-pre-wrap text-black/80">
             {JSON.stringify(hovered, null, 2)}
           </pre>
+      
         </div>
       )}
 
