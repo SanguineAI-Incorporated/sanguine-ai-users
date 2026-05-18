@@ -13,12 +13,13 @@ import {
 import nacl from "tweetnacl";
 import { createHash } from "crypto";
 
-/* ---------------- UTIL ---------------- */
+/* ---------------- UTIL: STABLE HASHING ---------------- */
 
 function sha256(str) {
   return createHash("sha256").update(str).digest("hex");
 }
 
+/* deterministic stringify (important for signatures) */
 function stableStringify(obj) {
   return JSON.stringify(obj, Object.keys(obj).sort());
 }
@@ -43,6 +44,7 @@ const rawEvents = (() => {
       timestamp: new Date(start + i * 60000).toISOString(),
 
       agent_id: "agent_robot_01",
+
       operator_id: Math.random() > 0.7 ? "human_456" : null,
 
       raw: {
@@ -54,7 +56,9 @@ const rawEvents = (() => {
       },
 
       policy_id: "policy_safety_v3",
+
       capability_id: Math.random() > 0.8 ? "cap_spend_001" : "cap_move_001",
+
       previous_event_hash: i === 0 ? null : `hash_evt_${i - 1}`,
     });
   }
@@ -74,16 +78,17 @@ function attest(event) {
 
   const executed = command !== "STOP" && safety_risk < 0.75;
 
+  /* ---- canonical event for hashing ---- */
   const canonical = stableStringify({
     ...event,
     derived: { safety_risk, stability },
-    outcome: { executed },
+    outcome: { executed }
   });
 
   const event_hash = sha256(canonical);
 
+  /* ---- mock keypair (replace with real stored keys in prod) ---- */
   const keyPair = nacl.sign.keyPair();
-
   const agent_signature = Buffer.from(
     nacl.sign.detached(
       Buffer.from(event_hash),
@@ -108,6 +113,7 @@ function attest(event) {
 
     attestation: {
       event_hash,
+      verified: true,
       agent_signature,
       public_key_id: "agent_robot_01_key",
     },
@@ -118,6 +124,7 @@ function attest(event) {
 
 export default function Dashboard() {
   const [selected, setSelected] = useState(null);
+  const [hovered, setHovered] = useState(null);
 
   const events = useMemo(() => {
     return rawEvents.map((e) => ({
@@ -147,33 +154,12 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
   };
 
-  /* NEW: open JSON in a new tab */
-  const openJsonTab = (eventObj) => {
-    const win = window.open();
-    win.document.write(`
-      <html>
-        <head>
-          <title>Event JSON</title>
-          <style>
-            body { background:#0b0b0b; color:#00ff88; font-family: monospace; padding:16px; }
-            pre { white-space: pre-wrap; word-wrap: break-word; }
-          </style>
-        </head>
-        <body>
-          <h3>Sanguine AI — Event JSON</h3>
-          <pre>${JSON.stringify(eventObj, null, 2)}</pre>
-        </body>
-      </html>
-    `);
-    win.document.close();
-  };
-
   return (
     <div className="min-h-screen bg-[#C8D8E4] text-black">
 
-      {/* HEADER (UPDATED BACK TO SANGUINE AI) */}
+      {/* HEADER */}
       <div className="fixed top-0 left-0 right-0 h-16 flex justify-between items-center px-7 z-10 bg-[#C8D8E4]/80 backdrop-blur-xl border-b border-black/10">
-        <div className="font-bold">SANGUINE AI</div>
+        <div className="font-bold">ATTESTATION LEDGER</div>
 
         <div className="flex gap-6 text-[11px] uppercase">
           <Link to="/identity">IDENTITY</Link>
@@ -184,7 +170,7 @@ export default function Dashboard() {
 
       <div className="pt-24 p-6 max-w-7xl mx-auto space-y-6">
 
-        {/* HEADER CARD */}
+        {/* SYSTEM HEADER */}
         <Card>
           <CardContent>
             <h2 className="text-xl font-semibold">
@@ -194,6 +180,29 @@ export default function Dashboard() {
             <p className="text-sm text-gray-600 mt-1">
               Signed event stream → hash chain → policy binding → verifiable execution history
             </p>
+
+            <div className="mt-3 text-xs font-mono text-black/70">
+              Cryptographically verifiable autonomous system logs (Ed25519 + SHA256 chain)
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* SIGNALS */}
+        <Card>
+          <CardContent>
+            <h2 className="text-xl mb-4">System Risk Signals</h2>
+
+            <div style={{ width: "100%", height: 240 }}>
+              <ResponsiveContainer>
+                <LineChart data={chartData}>
+                  <XAxis dataKey="index" />
+                  <YAxis />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="safety" stroke="#ff4d4d" />
+                  <Line type="monotone" dataKey="trust" stroke="#2EC7FF" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
 
@@ -207,7 +216,8 @@ export default function Dashboard() {
                 <div
                   key={e.event_id}
                   onClick={() => setSelected(e)}
-                  onDoubleClick={() => openJsonTab(e)}   // 👈 NEW BEHAVIOR
+                  onMouseEnter={() => setHovered(e)}
+                  onMouseLeave={() => setHovered(null)}
                   className="p-3 border cursor-pointer hover:bg-white/50"
                 >
                   <div className="flex justify-between text-sm">
@@ -227,10 +237,6 @@ export default function Dashboard() {
                   <div className="text-xs text-gray-600">
                     safety: {e.derived.safety_risk.toFixed(2)} | trust:{" "}
                     {e.trust.machine_trust.toFixed(2)}
-                  </div>
-
-                  <div className="text-[10px] text-gray-500 mt-1">
-                    double-click to open JSON
                   </div>
                 </div>
               ))}
@@ -253,13 +259,24 @@ export default function Dashboard() {
                 </div>
 
                 <div>
-                  <b>Risk</b>
+                  <b>Policy</b>
+                  <div>{selected.policy_id}</div>
+                </div>
+
+                <div>
+                  <b>Derived Risk</b>
                   <div>Safety: {selected.derived.safety_risk.toFixed(2)}</div>
                   <div>Stability: {selected.derived.stability_index.toFixed(2)}</div>
                 </div>
 
                 <div>
-                  <b>Attestation</b>
+                  <b>Outcome</b>
+                  <div>Executed: {String(selected.outcome.executed)}</div>
+                  <div>Command: {selected.outcome.command}</div>
+                </div>
+
+                <div>
+                  <b>Cryptographic Attestation</b>
                   <div className="text-xs break-all">
                     Hash: {selected.attestation.event_hash}
                   </div>
@@ -279,9 +296,9 @@ export default function Dashboard() {
         <Card>
           <CardContent className="flex justify-between items-center">
             <div>
-              <h2 className="text-xl">Export Log</h2>
+              <h2 className="text-xl">Export Attested Log</h2>
               <p className="text-sm text-gray-600">
-                JSONL with hashes + signatures
+                JSONL with hashes + signatures for audit or training
               </p>
             </div>
 
@@ -295,6 +312,15 @@ export default function Dashboard() {
         </Card>
 
       </div>
+
+      {/* HOVER INSPECTOR */}
+      {hovered && (
+        <div className="fixed right-6 top-24 w-[420px] max-h-[70vh] overflow-auto bg-black text-green-200 text-[10px] p-3 border border-black/30 shadow-xl z-50">
+          <div className="text-white mb-2 font-bold">Raw Attested Event</div>
+          <pre>{JSON.stringify(hovered, null, 2)}</pre>
+        </div>
+      )}
+
     </div>
   );
 }
