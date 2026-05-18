@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-/* ---------------- MOCK DATA (Agent Attestation API Schema) ---------------- */
+/* ---------------- MOCK DATA (Privacy-Preserving Attestation System) ---------------- */
 
 const mockLogs = (() => {
   const agents = ["agent-alpha", "agent-beta", "agent-gamma"];
@@ -26,34 +26,24 @@ const mockLogs = (() => {
     if (Math.random() < 0.75) continue;
 
     const hazard = Math.random();
-    const occlusion = Math.random();
-    const trajectoryRisk = Math.random();
+    const visionFeature = Math.random();
+    const motionFeature = Math.random();
 
     const agentId = agents[Math.floor(Math.random() * agents.length)];
-    const signature = btoa(`${agentId}:${t}:${hazard}:${occlusion}`).slice(0, 24);
+    const signature = btoa(`${agentId}:${t}:${hazard}:${visionFeature}`).slice(0, 24);
 
     logs.push({
       timestamp: date.toISOString(),
+
       data: {
         identity: {
           agent_id: agentId,
           signature,
         },
 
-        sensors: {
-          vision: {
-            occlusion,
-            confidence: 0.85 + Math.random() * 0.1,
-          },
-          audio: {
-            speech_detected: Math.random() < 0.3,
-            command_confidence: Math.random(),
-          },
-          trajectory: {
-            risk_score: trajectoryRisk,
-            velocity: Math.random() * 2,
-            direction_change: Math.random(),
-          },
+        features: {
+          vision_embedding_quality: visionFeature,
+          motion_dynamics: motionFeature,
         },
 
         environment: {
@@ -67,8 +57,8 @@ const mockLogs = (() => {
         },
 
         policy: {
-          triggered: hazard > 0.85 || occlusion > 0.9,
-          mode: "real-time-attestation",
+          triggered: hazard > 0.85,
+          mode: "attestation-only",
         },
       },
     });
@@ -81,8 +71,6 @@ const mockLogs = (() => {
 
 export default function Dashboard() {
   const [selectedLog, setSelectedLog] = useState(null);
-  const [policyFilter, setPolicyFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("24h");
   const [queryMode, setQueryMode] = useState("all");
 
   const hashDeviceId = (id = "") => {
@@ -98,82 +86,67 @@ export default function Dashboard() {
 
   const computeTrustScore = (log) => {
     const hazard = log?.data?.inference?.hazard_score ?? 0;
-    const occlusion = log?.data?.sensors?.vision?.occlusion ?? 0;
-    const trajectory = log?.data?.sensors?.trajectory?.risk_score ?? 0;
+    const vision = log?.data?.features?.vision_embedding_quality ?? 0;
+    const motion = log?.data?.features?.motion_dynamics ?? 0;
     const confidence = log?.data?.inference?.model_confidence ?? 0;
     const triggered = log?.data?.policy?.triggered ?? false;
 
     let risk =
       hazard * 0.4 +
-      occlusion * 0.25 +
-      trajectory * 0.25 +
+      vision * 0.25 +
+      motion * 0.25 +
       (triggered ? 0.3 : 0);
 
     let trust = (1 - risk) * 100 + confidence * 10;
-    trust = Math.max(0, Math.min(100, trust));
-
-    return Math.round(trust);
+    return Math.max(0, Math.min(100, Math.round(trust)));
   };
 
-  /* ---------------- AGENT TRUST MAP ---------------- */
+  /* ---------------- VERIFICATION LAYER (A) ---------------- */
 
-  const agentTrustMap = useMemo(() => {
-    const map = new Map();
+  const verifyAttestation = (log) => {
+    const valid =
+      log?.data?.identity?.agent_id &&
+      log?.data?.identity?.signature &&
+      log?.data?.features &&
+      log?.data?.inference;
 
-    mockLogs.forEach((log) => {
-      const agentId = log?.data?.identity?.agent_id;
-      const trust = computeTrustScore(log);
+    const hazard = log?.data?.inference?.hazard_score ?? 0;
+    const vision = log?.data?.features?.vision_embedding_quality ?? 0;
+    const motion = log?.data?.features?.motion_dynamics ?? 0;
 
-      if (!map.has(agentId)) {
-        map.set(agentId, { total: 0, count: 0 });
-      }
+    if (!valid) {
+      return { status: "INVALID", reason: "missing fields" };
+    }
 
-      const entry = map.get(agentId);
-      entry.total += trust;
-      entry.count += 1;
-    });
+    if (hazard > 0.95 || vision > 0.95 || motion > 0.95) {
+      return { status: "DEGRADED", reason: "outlier feature values" };
+    }
 
-    const result = {};
-    map.forEach((value, key) => {
-      result[key] = {
-        avgTrust: Math.round(value.total / value.count),
-        count: value.count,
-      };
-    });
+    return { status: "VERIFIED", reason: "consistent attestation" };
+  };
 
-    return result;
-  }, []);
+  /* ---------------- DRIFT DETECTION (B) ---------------- */
 
-  /* ---------------- FILTERED LOGS ---------------- */
-
-  const filteredLogs = useMemo(() => {
-    const now = Date.now();
-
-    let cutoff = -Infinity;
-    if (dateFilter === "1h") cutoff = now - 3600000;
-    if (dateFilter === "24h") cutoff = now - 86400000;
-    if (dateFilter === "3d") cutoff = now - 3 * 86400000;
-    if (dateFilter === "30d") cutoff = now - 30 * 86400000;
-
-    let logs = mockLogs.filter(
-      (l) => new Date(l.timestamp).getTime() >= cutoff
+  const computeDriftScore = (agentId) => {
+    const logs = mockLogs.filter(
+      (l) => l?.data?.identity?.agent_id === agentId
     );
 
-    if (policyFilter === "triggered") {
-      logs = logs.filter((l) => computeTrustScore(l) < 60);
-    }
+    if (logs.length < 5) return 0;
 
-    if (policyFilter === "clear") {
-      logs = logs.filter((l) => computeTrustScore(l) >= 60);
-    }
+    const score = (arr) =>
+      arr.reduce((s, l) => s + computeTrustScore(l), 0) / arr.length;
 
-    return logs;
-  }, [policyFilter, dateFilter]);
+    const recent = score(logs.slice(-5));
+    const early = score(logs.slice(0, 5));
 
-  /* ---------------- QUERY ENGINE (DATASET EXPLORER) ---------------- */
+    return Math.round(Math.abs(recent - early));
+  };
 
-  const queriedLogs = useMemo(() => {
-    let logs = filteredLogs;
+  /* ---------------- FILTERING ---------------- */
+
+  const filteredLogs = useMemo(() => {
+    let logs = mockLogs;
 
     switch (queryMode) {
       case "high_risk":
@@ -182,16 +155,16 @@ export default function Dashboard() {
 
       case "low_trust_agents":
         logs = logs.filter((l) => {
-          const agent = l?.data?.identity?.agent_id;
-          return (agentTrustMap[agent]?.avgTrust ?? 100) < 60;
+          const agent = l.data.identity.agent_id;
+          return computeDriftScore(agent) > 10;
         });
         break;
 
       case "anomalies":
         logs = logs.filter((l) => {
-          const h = l?.data?.inference?.hazard_score ?? 0;
-          const o = l?.data?.sensors?.vision?.occlusion ?? 0;
-          return h > 0.85 && o > 0.85;
+          const h = l.data.inference.hazard_score;
+          const v = l.data.features.vision_embedding_quality;
+          return h > 0.85 && v > 0.85;
         });
         break;
 
@@ -200,7 +173,24 @@ export default function Dashboard() {
     }
 
     return logs;
-  }, [filteredLogs, queryMode, agentTrustMap]);
+  }, [queryMode]);
+
+  /* ---------------- DATASET EXPORT (D) ---------------- */
+
+  const exportDatasetSlice = (logs) => {
+    return logs
+      .filter((l) => computeTrustScore(l) > 70)
+      .filter((l) => verifyAttestation(l).status === "VERIFIED")
+      .map((l) => ({
+        agent_id: l.data.identity.agent_id,
+        timestamp: l.timestamp,
+        features: l.data.features,
+        inference: l.data.inference,
+        label: computeTrustScore(l),
+      }));
+  };
+
+  const queriedLogs = filteredLogs;
 
   /* ---------------- VOLUME ---------------- */
 
@@ -236,39 +226,24 @@ export default function Dashboard() {
 
       <div className="pt-24 p-6 max-w-7xl mx-auto">
 
-        {/* FILTERS */}
+        {/* QUERY */}
         <div className="flex gap-3 mb-4">
-          <select
-            value={policyFilter}
-            onChange={(e) => setPolicyFilter(e.target.value)}
-            className="border p-1"
-          >
-            <option value="all">All</option>
-            <option value="triggered">Triggered</option>
-            <option value="clear">Clear</option>
-          </select>
-
-          <select
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            className="border p-1"
-          >
-            <option value="1h">1 hour</option>
-            <option value="24h">24 hours</option>
-            <option value="3d">3 days</option>
-            <option value="30d">30 days</option>
-          </select>
-
           <select
             value={queryMode}
             onChange={(e) => setQueryMode(e.target.value)}
             className="border p-1"
           >
-            <option value="all">All Data</option>
-            <option value="high_risk">High Risk Events</option>
-            <option value="low_trust_agents">Low Trust Agents</option>
+            <option value="all">All</option>
+            <option value="high_risk">High Risk</option>
+            <option value="low_trust_agents">Drifting Agents</option>
             <option value="anomalies">Anomalies</option>
           </select>
+        </div>
+
+        {/* SYSTEM PANEL */}
+        <div className="mb-4 text-xs space-y-1">
+          <div className="font-bold">System Intelligence Layer</div>
+          <div>Exportable dataset: {exportDatasetSlice(queriedLogs).length}</div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -276,30 +251,28 @@ export default function Dashboard() {
           {/* VOLUME */}
           <Card className="col-span-1 md:col-span-2 border border-black/15 bg-white/85">
             <CardContent>
-              <h2 className="text-xl mb-4">Volume</h2>
+              <h2 className="text-xl mb-4">Behavioral Stream Volume</h2>
 
-              <div style={{ width: "100%", height: 300 }}>
-                <ResponsiveContainer>
-                  <LineChart data={volumeData}>
-                    <XAxis dataKey="hour" />
-                    <YAxis />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="count" stroke="#2EC7FF" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={volumeData}>
+                  <XAxis dataKey="hour" />
+                  <YAxis />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="count" stroke="#2EC7FF" />
+                </LineChart>
+              </ResponsiveContainer>
             </CardContent>
           </Card>
 
-          {/* LOGS */}
+          {/* STREAM */}
           <Card className="border border-black/15 bg-white/90">
             <CardContent>
-              <h2 className="text-xl mb-4">Behavioral Stream</h2>
+              <h2 className="text-xl mb-4">Behavior Stream</h2>
 
               <div className="overflow-auto max-h-96">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left border-b border-black/15 bg-white/40">
+                    <tr className="text-left border-b">
                       <th className="p-2">Time</th>
                       <th className="p-2">Agent</th>
                       <th className="p-2">Trust</th>
@@ -313,31 +286,22 @@ export default function Dashboard() {
 
                       return (
                         <tr
-                          key={log.timestamp + i}
+                          key={i}
                           onClick={() => setSelectedLog(log)}
-                          className="border-b border-black/5 cursor-pointer hover:bg-white/40"
+                          className="hover:bg-white/40 cursor-pointer"
                         >
                           <td className="p-2">
                             {new Date(log.timestamp).toLocaleString()}
                           </td>
 
                           <td className="p-2">
-                            <div className="flex flex-col">
-                              <span>
-                                {hashDeviceId(log.data.identity.agent_id)}
-                              </span>
-                              <span className="text-[10px] text-gray-500">
-                                trust:{" "}
-                                {agentTrustMap[log.data.identity.agent_id]
-                                  ?.avgTrust ?? "—"}
-                              </span>
-                            </div>
+                            {hashDeviceId(log.data.identity.agent_id)}
                           </td>
 
                           <td className="p-2">{trust}</td>
 
                           <td className="p-2 text-xs">
-                            {trust < 60 ? "FLAGGED" : "CLEAR"}
+                            {trust > 60 ? "CLEAR" : "FLAGGED"}
                           </td>
                         </tr>
                       );
@@ -354,32 +318,29 @@ export default function Dashboard() {
               <h2 className="text-xl mb-4">Agent Attestation</h2>
 
               {selectedLog ? (
-                <div className="text-sm space-y-4">
+                <div className="text-sm space-y-3">
 
                   <div>
-                    <div className="font-bold">Identity</div>
-                    <div className="text-xs text-gray-600">
-                      agent: {hashDeviceId(selectedLog.data.identity.agent_id)}
+                    <div className="font-bold">Verification</div>
+                    <div className="text-xs">
+                      {verifyAttestation(selectedLog).status} —{" "}
+                      {verifyAttestation(selectedLog).reason}
                     </div>
                   </div>
 
                   <div>
-                    <div className="font-bold">Trust Score</div>
-                    <div className="text-xs text-gray-600">
-                      event trust: {computeTrustScore(selectedLog)}
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      agent avg:{" "}
-                      {agentTrustMap[
+                    <div className="font-bold">Drift</div>
+                    <div className="text-xs">
+                      {computeDriftScore(
                         selectedLog.data.identity.agent_id
-                      ]?.avgTrust ?? "—"}
+                      )}
                     </div>
                   </div>
 
                   <div>
-                    <div className="font-bold">Environment</div>
-                    <div className="text-xs text-gray-600">
-                      location: {selectedLog.data.environment.location_id}
+                    <div className="font-bold">Trust</div>
+                    <div className="text-xs">
+                      event: {computeTrustScore(selectedLog)}
                     </div>
                   </div>
 
