@@ -1,57 +1,46 @@
 import React, { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "react-router-dom";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
-/* ---------------- MOCK ATTESTATION LOGS ---------------- */
+/* ---------------- MOCK RAW SENSOR LOGS ---------------- */
 
-const mockLogs = (() => {
-  const agents = ["robot-alpha", "robot-beta", "robot-gamma"];
-  const sessions = ["sess-1", "sess-2", "sess-3"];
+const rawLogs = (() => {
+  const devices = ["robot-alpha", "robot-beta"];
+  const locations = ["home-1", "home-2"];
+  const commands = ["MOVE", "STOP", "ASSIST"];
 
   const logs = [];
-  const start = new Date("2025-04-27T08:00:00Z").getTime();
-  const end = new Date("2025-04-27T12:00:00Z").getTime();
+  const start = new Date("2026-05-17T00:00:00Z").getTime();
+  const end = new Date("2026-05-18T00:00:00Z").getTime();
 
-  let seq = 0;
+  for (let t = start; t <= end; t += 1000 * 60 * 10) {
+    const date = new Date(t);
 
-  for (let t = start; t <= end; t += 1000 * 30) {
-    if (Math.random() < 0.6) continue;
-
-    const agent = agents[Math.floor(Math.random() * agents.length)];
-    const session = sessions[Math.floor(Math.random() * sessions.length)];
-
+    const occlusion = Math.random();
     const hazard = Math.random();
-    const trust = Math.max(
-      0,
-      Math.min(100, (1 - hazard) * 100 + (Math.random() * 10 - 5))
-    );
+    const motion = Math.random();
 
     logs.push({
-      timestamp: new Date(t).toISOString(),
-      data: {
-        attestation: {
-          agent_id: agent,
-          session_id: session,
-          sequence_id: seq++,
-        },
+      timestamp: date.toISOString(),
 
-        signals: {
-          vision: { occlusion: Math.random() },
-          motion: { velocity: Math.random() },
+      raw: {
+        sensors: {
+          vision: { occlusion },
+          motion: { velocity: motion },
           audio: {
-            operator_command_label:
-              Math.random() > 0.7 ? (hazard > 0.7 ? "STOP" : "MOVE") : null,
+            command:
+              Math.random() > 0.6
+                ? commands[Math.floor(Math.random() * commands.length)]
+                : null,
           },
-        },
-
-        inference: {
-          hazard_score: hazard,
-          trust_score: trust,
-        },
-
-        provenance: {
-          model_version: "mock-v1",
-          signed: true,
         },
       },
     });
@@ -60,288 +49,182 @@ const mockLogs = (() => {
   return logs;
 })();
 
-/* ---------------- HELPERS ---------------- */
+/* ---------------- INFERENCE LAYER ---------------- */
 
-const computeTrust = (log) =>
-  log?.data?.inference?.trust_score ??
-  Math.max(0, (1 - (log?.data?.inference?.hazard_score ?? 0)) * 100);
+function infer(log) {
+  const occlusion = log.raw.sensors.vision.occlusion;
+  const motion = log.raw.sensors.motion.velocity;
+  const command = log.raw.sensors.audio.command;
+
+  const hazard = occlusion * 0.6 + (1 - motion) * 0.4;
+
+  const stability = 1 - Math.abs(0.5 - motion);
+
+  const trust = 1 - occlusion * 0.5;
+
+  const taskSuccess = command === "ASSIST" && hazard < 0.6;
+
+  return {
+    derived_features: {
+      hazard_score: hazard,
+      stability_index: stability,
+      trust_score: trust,
+    },
+    outcomes: {
+      task_success: taskSuccess,
+      safety_event: hazard > 0.75,
+    },
+    reward_proxies: {
+      safety_reward: 1 - hazard,
+      task_reward: taskSuccess ? 1 : 0,
+      comfort_reward: stability,
+    },
+  };
+}
 
 /* ---------------- DASHBOARD ---------------- */
 
 export default function Dashboard() {
-  const [selectedEpisodeIndex, setSelectedEpisodeIndex] = useState(0);
-  const [replayStep, setReplayStep] = useState(0);
+  const [selected, setSelected] = useState(null);
 
-  const [compareMode, setCompareMode] = useState(false);
-  const [compareA, setCompareA] = useState(0);
-  const [compareB, setCompareB] = useState(1);
+  const episodes = useMemo(() => {
+    return rawLogs.map((log, i) => {
+      const inference = infer(log);
 
-  /* ---------------- EPISODE BUILDER ---------------- */
-
-  const buildEpisodes = (logs) => {
-    const episodes = [];
-    let current = [];
-    let lastSession = null;
-
-    logs.forEach((l) => {
-      const session = l?.data?.attestation?.session_id;
-
-      if (lastSession && session !== lastSession) {
-        episodes.push(current);
-        current = [];
-      }
-
-      current.push(l);
-      lastSession = session;
+      return {
+        id: `ep-${i}`,
+        raw: log.raw,
+        timestamp: log.timestamp,
+        ...inference,
+      };
     });
-
-    if (current.length) episodes.push(current);
-
-    return episodes;
-  };
-
-  /* ---------------- METRICS ---------------- */
-
-  const summarize = (ep) => {
-    const trust = ep.map(computeTrust);
-    const hazard = ep.map((l) => l.data.inference.hazard_score);
-
-    const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
-
-    return {
-      avgTrust: avg(trust),
-      avgHazard: avg(hazard),
-      trustVolatility: avg(trust.map((t) => Math.abs(t - avg(trust)))),
-    };
-  };
-
-  /* ---------------- FAILURE BOUNDARY ---------------- */
-
-  const detectFailureBoundary = (ep) => {
-    for (let i = 1; i < ep.length; i++) {
-      const prev = computeTrust(ep[i - 1]);
-      const curr = computeTrust(ep[i]);
-
-      const hPrev = ep[i - 1].data.inference.hazard_score;
-      const hCurr = ep[i].data.inference.hazard_score;
-
-      if (prev - curr > 15 || hCurr - hPrev > 0.25 || curr < 50) {
-        return i;
-      }
-    }
-    return null;
-  };
-
-  /* ---------------- DATASET ---------------- */
-
-  const episodeDataset = useMemo(() => {
-    const episodes = buildEpisodes(mockLogs);
-
-    return episodes.map((ep) => ({
-      episode_id: ep[0]?.data?.attestation?.session_id,
-      agent_id: ep[0]?.data?.attestation?.agent_id,
-      trajectory: ep.map((l) => ({
-        trust: computeTrust(l),
-        hazard: l.data.inference.hazard_score,
-      })),
-      metrics: summarize(ep),
-      failureBoundary: detectFailureBoundary(ep),
-    }));
   }, []);
 
-  const clusteredEpisodes = useMemo(() => {
-    return episodeDataset.map((ep) => {
-      const m = ep.metrics;
-
-      const score =
-        m.avgTrust +
-        (100 - m.trustVolatility) -
-        m.avgHazard * 50;
-
-      let cluster = "FAILURE_PRONE";
-      if (score > 120) cluster = "STABLE_HIGH_TRUST";
-      else if (score > 90) cluster = "MODERATE_STABLE";
-      else if (score > 60) cluster = "DRIFTING_UNSTABLE";
-
-      return { ...ep, cluster };
-    });
-  }, [episodeDataset]);
-
-  const activeEpisode = clusteredEpisodes[selectedEpisodeIndex];
-  const activeFrame = activeEpisode?.trajectory?.[replayStep];
-
-  const A = clusteredEpisodes[compareA];
-  const B = clusteredEpisodes[compareB];
-
-  const divergence =
-    A && B
-      ? {
-          trustGap: A.metrics.avgTrust - B.metrics.avgTrust,
-          hazardGap: A.metrics.avgHazard - B.metrics.avgHazard,
-        }
-      : null;
-
-  const embedded = useMemo(() => {
-    return clusteredEpisodes.map((ep) => ({
-      x: ep.metrics.avgTrust,
-      y: ep.metrics.trustVolatility + ep.metrics.avgHazard * 50,
-      cluster: ep.cluster,
+  const volumeData = useMemo(() => {
+    return episodes.map((e, i) => ({
+      index: i,
+      hazard: e.derived_features.hazard_score,
+      trust: e.derived_features.trust_score,
     }));
-  }, [clusteredEpisodes]);
+  }, [episodes]);
 
   return (
-    <div className="min-h-screen bg-[#C8D8E4] p-6 text-black">
+    <div className="min-h-screen bg-[#C8D8E4] text-black">
 
-      {/* ---------------- NAV ---------------- */}
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">
-          Behavioral Dataset Engine (Mock)
-        </h1>
+      {/* HEADER */}
+      <div className="fixed top-0 left-0 right-0 h-16 flex justify-between items-center px-7 z-10 bg-[#C8D8E4]/80 backdrop-blur-xl border-b border-black/10">
+        <div className="font-bold">SANGUINE AI</div>
 
-        <div className="flex gap-6 text-[11px] uppercase tracking-wide">
-          <Link to="/profile" className="hover:underline">
-            Profile
-          </Link>
-
-          <Link to="/documentation" className="hover:underline">
-            Documentation
-          </Link>
-
-          <Link to="/engine-editor" className="hover:underline">
-            Engine Editor
-          </Link>
+        <div className="flex gap-6 text-[11px] uppercase">
+          <Link to="/profile">PROFILE</Link>
+          <Link to="/documentation">DOCUMENTATION</Link>
+          <Link to="/engine-editor">ENGINE EDITOR</Link>
         </div>
       </div>
 
-      {/* ---------------- REPLAY ---------------- */}
-      <Card className="mb-4">
-        <CardContent>
-          <h2 className="font-bold mb-2">Episode Replay</h2>
+      <div className="pt-24 p-6 max-w-7xl mx-auto space-y-6">
 
-          <select
-            className="border p-1 w-full"
-            value={selectedEpisodeIndex}
-            onChange={(e) => {
-              setSelectedEpisodeIndex(Number(e.target.value));
-              setReplayStep(0);
-            }}
-          >
-            {clusteredEpisodes.map((e, i) => (
-              <option key={i} value={i}>
-                {e.cluster} | trust {e.metrics.avgTrust.toFixed(1)}
-              </option>
-            ))}
-          </select>
+        {/* SYSTEM VIEW */}
+        <Card>
+          <CardContent>
+            <h2 className="text-xl mb-4">Behavioral Inference System</h2>
+            <p className="text-sm text-gray-600">
+              Raw sensor logs → structured behavioral records → probabilistic inference → training-ready episodes
+            </p>
+          </CardContent>
+        </Card>
 
-          <input
-            type="range"
-            className="w-full mt-2"
-            min="0"
-            max={activeEpisode?.trajectory.length - 1 || 0}
-            value={replayStep}
-            onChange={(e) => setReplayStep(Number(e.target.value))}
-          />
+        {/* SIGNAL OVERVIEW */}
+        <Card>
+          <CardContent>
+            <h2 className="text-xl mb-4">System Signals</h2>
 
-          <div className="text-xs mt-2">
-            Trust: {activeFrame?.trust} | Hazard: {activeFrame?.hazard}
-          </div>
-
-          {activeEpisode?.failureBoundary !== null && (
-            <div className="text-red-600 text-xs mt-1">
-              Failure at step {activeEpisode.failureBoundary}
+            <div style={{ width: "100%", height: 250 }}>
+              <ResponsiveContainer>
+                <LineChart data={volumeData}>
+                  <XAxis dataKey="index" />
+                  <YAxis />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="hazard" stroke="#ff4d4d" />
+                  <Line type="monotone" dataKey="trust" stroke="#2EC7FF" />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      {/* ---------------- CLUSTERS ---------------- */}
-      <Card className="mb-4">
-        <CardContent>
-          <h2 className="font-bold">Clusters</h2>
+        {/* EPISODE LIST */}
+        <Card>
+          <CardContent>
+            <h2 className="text-xl mb-4">Behavioral Episodes</h2>
 
-          {[
-            "STABLE_HIGH_TRUST",
-            "MODERATE_STABLE",
-            "DRIFTING_UNSTABLE",
-            "FAILURE_PRONE",
-          ].map((c) => (
-            <div key={c} className="flex justify-between text-sm">
-              <span>{c}</span>
-              <span>{clusteredEpisodes.filter((e) => e.cluster === c).length}</span>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+            <div className="space-y-2 max-h-96 overflow-auto">
+              {episodes.map((e) => (
+                <div
+                  key={e.id}
+                  onClick={() => setSelected(e)}
+                  className="p-3 border cursor-pointer hover:bg-white/50"
+                >
+                  <div className="flex justify-between text-sm">
+                    <span>{e.id}</span>
 
-      {/* ---------------- COMPARISON ---------------- */}
-      <Card className="mb-4">
-        <CardContent>
-          <h2 className="font-bold">Comparison</h2>
+                    <span
+                      className={
+                        e.outcomes.safety_event
+                          ? "text-red-600"
+                          : "text-green-600"
+                      }
+                    >
+                      {e.outcomes.safety_event ? "RISK" : "SAFE"}
+                    </span>
+                  </div>
 
-          <label className="text-xs">
-            <input
-              type="checkbox"
-              checked={compareMode}
-              onChange={(e) => setCompareMode(e.target.checked)}
-            />{" "}
-            Enable
-          </label>
-
-          {compareMode && (
-            <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-              <select
-                value={compareA}
-                onChange={(e) => setCompareA(Number(e.target.value))}
-              >
-                {clusteredEpisodes.map((e, i) => (
-                  <option key={i} value={i}>
-                    A {e.cluster}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={compareB}
-                onChange={(e) => setCompareB(Number(e.target.value))}
-              >
-                {clusteredEpisodes.map((e, i) => (
-                  <option key={i} value={i}>
-                    B {e.cluster}
-                  </option>
-                ))}
-              </select>
-
-              {divergence && (
-                <div className="col-span-2 mt-2">
-                  Trust Gap: {divergence.trustGap.toFixed(2)} <br />
-                  Hazard Gap: {divergence.hazardGap.toFixed(2)}
+                  <div className="text-xs text-gray-600">
+                    hazard: {e.derived_features.hazard_score.toFixed(2)} | trust:{" "}
+                    {e.derived_features.trust_score.toFixed(2)}
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      {/* ---------------- EMBEDDING ---------------- */}
-      <Card>
-        <CardContent>
-          <h2 className="font-bold">Behavior Space</h2>
+        {/* DETAIL PANEL */}
+        <Card>
+          <CardContent>
+            <h2 className="text-xl mb-4">Episode Detail</h2>
 
-          <div className="relative h-64 bg-white border">
-            {embedded.map((p, i) => (
-              <div
-                key={i}
-                className="absolute w-2 h-2 bg-blue-500 rounded-full"
-                style={{
-                  left: `${p.x}%`,
-                  top: `${Math.min(100, p.y)}%`,
-                }}
-              />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+            {selected ? (
+              <div className="text-sm space-y-3">
 
+                <div>
+                  <b>Derived Features</b>
+                  <div>Hazard: {selected.derived_features.hazard_score.toFixed(2)}</div>
+                  <div>Trust: {selected.derived_features.trust_score.toFixed(2)}</div>
+                  <div>Stability: {selected.derived_features.stability_index.toFixed(2)}</div>
+                </div>
+
+                <div>
+                  <b>Outcomes</b>
+                  <div>Success: {String(selected.outcomes.task_success)}</div>
+                  <div>Safety Event: {String(selected.outcomes.safety_event)}</div>
+                </div>
+
+                <div>
+                  <b>Reward Proxies</b>
+                  <div>Safety: {selected.reward_proxies.safety_reward.toFixed(2)}</div>
+                  <div>Task: {selected.reward_proxies.task_reward.toFixed(2)}</div>
+                  <div>Comfort: {selected.reward_proxies.comfort_reward.toFixed(2)}</div>
+                </div>
+
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">Select an episode</p>
+            )}
+          </CardContent>
+        </Card>
+
+      </div>
     </div>
   );
 }
