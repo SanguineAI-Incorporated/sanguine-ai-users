@@ -1,64 +1,34 @@
 import React, { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "react-router-dom";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
 
-/* ---------------- MOCK DATA (Privacy-Preserving Attestation System) ---------------- */
+/* ---------------- MOCK LOGS ---------------- */
 
 const mockLogs = (() => {
-  const agents = ["agent-alpha", "agent-beta", "agent-gamma"];
+  const devices = ["robot-1", "robot-2", "robot-3"];
   const locations = ["zone-a", "zone-b", "zone-c"];
 
   const logs = [];
   const start = new Date("2025-04-27T08:00:00Z").getTime();
   const end = new Date("2026-04-29T18:00:00Z").getTime();
 
-  for (let t = start; t <= end; t += 1000 * 60 * 30) {
+  for (let t = start; t <= end; t += 1000 * 60 * 5) {
     const date = new Date(t);
 
-    if (Math.random() < 0.75) continue;
+    if (Math.random() < 0.7) continue;
 
     const hazard = Math.random();
-    const visionFeature = Math.random();
-    const motionFeature = Math.random();
-
-    const agentId = agents[Math.floor(Math.random() * agents.length)];
-    const signature = btoa(`${agentId}:${t}:${hazard}:${visionFeature}`).slice(0, 24);
 
     logs.push({
       timestamp: date.toISOString(),
-
       data: {
         identity: {
-          agent_id: agentId,
-          signature,
+          agent_id: devices[Math.floor(Math.random() * devices.length)],
+          signature: "sig_" + Math.random().toString(16).slice(2),
         },
-
-        features: {
-          vision_embedding_quality: visionFeature,
-          motion_dynamics: motionFeature,
-        },
-
-        environment: {
-          location_id: locations[Math.floor(Math.random() * locations.length)],
-          lighting_condition: Math.random() > 0.5 ? "normal" : "low_light",
-        },
-
+        location_id: locations[Math.floor(Math.random() * locations.length)],
         inference: {
           hazard_score: hazard,
-          model_confidence: 0.8 + Math.random() * 0.2,
-        },
-
-        policy: {
-          triggered: hazard > 0.85,
-          mode: "attestation-only",
         },
       },
     });
@@ -67,292 +37,276 @@ const mockLogs = (() => {
   return logs;
 })();
 
+/* ---------------- HELPERS ---------------- */
+
+const computeTrustScore = (log) => {
+  const h = log?.data?.inference?.hazard_score ?? 0;
+  return Math.max(0, Math.round((1 - h) * 100));
+};
+
 /* ---------------- DASHBOARD ---------------- */
 
 export default function Dashboard() {
-  const [selectedLog, setSelectedLog] = useState(null);
-  const [queryMode, setQueryMode] = useState("all");
+  const [selectedEpisodeIndex, setSelectedEpisodeIndex] = useState(0);
+  const [replayStep, setReplayStep] = useState(0);
 
-  const hashDeviceId = (id = "") => {
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-      hash = (hash << 5) - hash + id.charCodeAt(i);
-      hash |= 0;
-    }
-    return "dev_" + Math.abs(hash).toString(16);
-  };
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareIndexA, setCompareIndexA] = useState(0);
+  const [compareIndexB, setCompareIndexB] = useState(1);
 
-  /* ---------------- TRUST SCORE ---------------- */
+  /* ---------------- EPISODE BUILDING ---------------- */
 
-  const computeTrustScore = (log) => {
-    const hazard = log?.data?.inference?.hazard_score ?? 0;
-    const vision = log?.data?.features?.vision_embedding_quality ?? 0;
-    const motion = log?.data?.features?.motion_dynamics ?? 0;
-    const confidence = log?.data?.inference?.model_confidence ?? 0;
-    const triggered = log?.data?.policy?.triggered ?? false;
+  const buildEpisodes = (logs) => {
+    const episodes = [];
+    let current = [];
+    let lastAgent = null;
 
-    let risk =
-      hazard * 0.4 +
-      vision * 0.25 +
-      motion * 0.25 +
-      (triggered ? 0.3 : 0);
+    logs.forEach((log) => {
+      const agent = log?.data?.identity?.agent_id;
 
-    let trust = (1 - risk) * 100 + confidence * 10;
-    return Math.max(0, Math.min(100, Math.round(trust)));
-  };
+      if (lastAgent && agent !== lastAgent) {
+        episodes.push(current);
+        current = [];
+      }
 
-  /* ---------------- VERIFICATION LAYER (A) ---------------- */
-
-  const verifyAttestation = (log) => {
-    const valid =
-      log?.data?.identity?.agent_id &&
-      log?.data?.identity?.signature &&
-      log?.data?.features &&
-      log?.data?.inference;
-
-    const hazard = log?.data?.inference?.hazard_score ?? 0;
-    const vision = log?.data?.features?.vision_embedding_quality ?? 0;
-    const motion = log?.data?.features?.motion_dynamics ?? 0;
-
-    if (!valid) {
-      return { status: "INVALID", reason: "missing fields" };
-    }
-
-    if (hazard > 0.95 || vision > 0.95 || motion > 0.95) {
-      return { status: "DEGRADED", reason: "outlier feature values" };
-    }
-
-    return { status: "VERIFIED", reason: "consistent attestation" };
-  };
-
-  /* ---------------- DRIFT DETECTION (B) ---------------- */
-
-  const computeDriftScore = (agentId) => {
-    const logs = mockLogs.filter(
-      (l) => l?.data?.identity?.agent_id === agentId
-    );
-
-    if (logs.length < 5) return 0;
-
-    const score = (arr) =>
-      arr.reduce((s, l) => s + computeTrustScore(l), 0) / arr.length;
-
-    const recent = score(logs.slice(-5));
-    const early = score(logs.slice(0, 5));
-
-    return Math.round(Math.abs(recent - early));
-  };
-
-  /* ---------------- FILTERING ---------------- */
-
-  const filteredLogs = useMemo(() => {
-    let logs = mockLogs;
-
-    switch (queryMode) {
-      case "high_risk":
-        logs = logs.filter((l) => computeTrustScore(l) < 50);
-        break;
-
-      case "low_trust_agents":
-        logs = logs.filter((l) => {
-          const agent = l.data.identity.agent_id;
-          return computeDriftScore(agent) > 10;
-        });
-        break;
-
-      case "anomalies":
-        logs = logs.filter((l) => {
-          const h = l.data.inference.hazard_score;
-          const v = l.data.features.vision_embedding_quality;
-          return h > 0.85 && v > 0.85;
-        });
-        break;
-
-      default:
-        break;
-    }
-
-    return logs;
-  }, [queryMode]);
-
-  /* ---------------- DATASET EXPORT (D) ---------------- */
-
-  const exportDatasetSlice = (logs) => {
-    return logs
-      .filter((l) => computeTrustScore(l) > 70)
-      .filter((l) => verifyAttestation(l).status === "VERIFIED")
-      .map((l) => ({
-        agent_id: l.data.identity.agent_id,
-        timestamp: l.timestamp,
-        features: l.data.features,
-        inference: l.data.inference,
-        label: computeTrustScore(l),
-      }));
-  };
-
-  const queriedLogs = filteredLogs;
-
-  /* ---------------- VOLUME ---------------- */
-
-  const volumeData = useMemo(() => {
-    const buckets = {};
-
-    queriedLogs.forEach((log) => {
-      const key = log.timestamp.slice(0, 13);
-      buckets[key] = (buckets[key] || 0) + 1;
+      current.push(log);
+      lastAgent = agent;
     });
 
-    return Object.entries(buckets).map(([hour, count]) => ({
-      hour,
-      count,
-    }));
-  }, [queriedLogs]);
+    if (current.length) episodes.push(current);
 
-  /* ---------------- UI ---------------- */
+    return episodes;
+  };
+
+  const summarizeEpisode = (episode) => {
+    const trusts = episode.map(computeTrustScore);
+    const hazards = episode.map((l) => l?.data?.inference?.hazard_score ?? 0);
+
+    const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+
+    const avgTrust = avg(trusts);
+    const avgHazard = avg(hazards);
+
+    const volatility = avg(trusts.map((t) => Math.abs(t - avgTrust)));
+
+    const label =
+      avgTrust > 70
+        ? "GOOD_EPISODE"
+        : avgTrust > 50
+        ? "MIXED_EPISODE"
+        : "FAILURE_EPISODE";
+
+    return {
+      avgTrust,
+      avgHazard,
+      trustVolatility: volatility,
+      label,
+    };
+  };
+
+  /* ---------------- FAILURE BOUNDARY ---------------- */
+
+  const detectFailureBoundary = (episode) => {
+    for (let i = 1; i < episode.length; i++) {
+      const prev = computeTrustScore(episode[i - 1]);
+      const curr = computeTrustScore(episode[i]);
+
+      const hazardPrev = episode[i - 1]?.data?.inference?.hazard_score ?? 0;
+      const hazardCurr = episode[i]?.data?.inference?.hazard_score ?? 0;
+
+      if (prev - curr > 15 || hazardCurr - hazardPrev > 0.25 || curr < 50) {
+        return i;
+      }
+    }
+    return null;
+  };
+
+  /* ---------------- DATASET ---------------- */
+
+  const episodeDataset = useMemo(() => {
+    const episodes = buildEpisodes(mockLogs);
+
+    return episodes.map((ep) => ({
+      episode_id: ep[0]?.data?.identity?.signature,
+      trajectory: ep.map((l) => ({
+        trust: computeTrustScore(l),
+        hazard: l?.data?.inference?.hazard_score,
+      })),
+      raw: ep,
+      metrics: summarizeEpisode(ep),
+      failureBoundary: detectFailureBoundary(ep),
+    }));
+  }, []);
+
+  const clusteredEpisodes = useMemo(() => {
+    return episodeDataset.map((ep) => {
+      const v = ep.metrics;
+
+      const score =
+        v.avgTrust +
+        (100 - v.trustVolatility) -
+        v.avgHazard * 50;
+
+      let cluster = "FAILURE_PRONE";
+      if (score > 120) cluster = "STABLE_HIGH_TRUST";
+      else if (score > 90) cluster = "MODERATE_STABLE";
+      else if (score > 60) cluster = "DRIFTING_UNSTABLE";
+
+      return { ...ep, cluster, vector: v };
+    });
+  }, [episodeDataset]);
+
+  /* ---------------- SELECTION ---------------- */
+
+  const activeEpisode = clusteredEpisodes[selectedEpisodeIndex];
+
+  const activeFrame =
+    activeEpisode?.trajectory?.[replayStep] ?? null;
+
+  /* ---------------- COMPARISON ---------------- */
+
+  const episodeA = clusteredEpisodes[compareIndexA];
+  const episodeB = clusteredEpisodes[compareIndexB];
+
+  const divergence = episodeA && episodeB
+    ? {
+        trustGap: episodeA.vector.avgTrust - episodeB.vector.avgTrust,
+        hazardGap: episodeA.vector.avgHazard - episodeB.vector.avgHazard,
+      }
+    : null;
+
+  /* ---------------- EMBEDDING ---------------- */
+
+  const embeddedEpisodes = useMemo(() => {
+    return clusteredEpisodes.map((ep) => ({
+      x: ep.vector.avgTrust,
+      y: ep.vector.trustVolatility + ep.vector.avgHazard * 50,
+      cluster: ep.cluster,
+    }));
+  }, [clusteredEpisodes]);
 
   return (
-    <div className="min-h-screen bg-[#C8D8E4] text-black">
+    <div className="min-h-screen bg-[#C8D8E4] p-6 text-black">
 
       {/* HEADER */}
-      <div className="fixed top-0 left-0 right-0 h-16 flex justify-between items-center px-7 z-10 bg-[#C8D8E4]/80 backdrop-blur-xl border-b border-black/10">
-        <div className="font-bold">SANGUINE AI</div>
-
-        <div className="flex gap-6 text-[11px] uppercase">
-          <Link to="/profile">PROFILE</Link>
-          <Link to="/documentation">DOCUMENTATION</Link>
-          <Link to="/engine-editor">ENGINE EDITOR</Link>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold">Behavioral Intelligence Dashboard</h1>
+        <p className="text-sm text-gray-600">
+          Episode-based autonomous system dataset generation
+        </p>
       </div>
 
-      <div className="pt-24 p-6 max-w-7xl mx-auto">
+      {/* REPLAY */}
+      <Card className="mb-4">
+        <CardContent>
+          <h2 className="font-bold mb-2">Episode Replay</h2>
 
-        {/* QUERY */}
-        <div className="flex gap-3 mb-4">
           <select
-            value={queryMode}
-            onChange={(e) => setQueryMode(e.target.value)}
-            className="border p-1"
+            value={selectedEpisodeIndex}
+            onChange={(e) => {
+              setSelectedEpisodeIndex(Number(e.target.value));
+              setReplayStep(0);
+            }}
+            className="border p-1 w-full mb-2"
           >
-            <option value="all">All</option>
-            <option value="high_risk">High Risk</option>
-            <option value="low_trust_agents">Drifting Agents</option>
-            <option value="anomalies">Anomalies</option>
+            {clusteredEpisodes.map((ep, i) => (
+              <option key={i} value={i}>
+                {ep.cluster} — {ep.metrics.avgTrust.toFixed(1)}
+              </option>
+            ))}
           </select>
-        </div>
 
-        {/* SYSTEM PANEL */}
-        <div className="mb-4 text-xs space-y-1">
-          <div className="font-bold">System Intelligence Layer</div>
-          <div>Exportable dataset: {exportDatasetSlice(queriedLogs).length}</div>
-        </div>
+          <input
+            type="range"
+            min="0"
+            max={activeEpisode?.trajectory.length - 1 || 0}
+            value={replayStep}
+            onChange={(e) => setReplayStep(Number(e.target.value))}
+            className="w-full"
+          />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="mt-2 text-xs">
+            Trust: {activeFrame?.trust} | Hazard: {activeFrame?.hazard}
+          </div>
 
-          {/* VOLUME */}
-          <Card className="col-span-1 md:col-span-2 border border-black/15 bg-white/85">
-            <CardContent>
-              <h2 className="text-xl mb-4">Behavioral Stream Volume</h2>
+          {activeEpisode?.failureBoundary !== null && (
+            <div className="text-red-600 text-xs mt-2">
+              Failure boundary at step {activeEpisode.failureBoundary}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={volumeData}>
-                  <XAxis dataKey="hour" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke="#2EC7FF" />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+      {/* CLUSTERS */}
+      <Card className="mb-4">
+        <CardContent>
+          <h2 className="font-bold mb-2">Behavioral Clusters</h2>
 
-          {/* STREAM */}
-          <Card className="border border-black/15 bg-white/90">
-            <CardContent>
-              <h2 className="text-xl mb-4">Behavior Stream</h2>
+          {["STABLE_HIGH_TRUST","MODERATE_STABLE","DRIFTING_UNSTABLE","FAILURE_PRONE"].map(c => (
+            <div key={c} className="flex justify-between text-sm">
+              <span>{c}</span>
+              <span>
+                {clusteredEpisodes.filter(e => e.cluster === c).length}
+              </span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
-              <div className="overflow-auto max-h-96">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left border-b">
-                      <th className="p-2">Time</th>
-                      <th className="p-2">Agent</th>
-                      <th className="p-2">Trust</th>
-                      <th className="p-2">Policy</th>
-                    </tr>
-                  </thead>
+      {/* COMPARISON */}
+      <Card className="mb-4">
+        <CardContent>
+          <h2 className="font-bold mb-2">Episode Comparison</h2>
 
-                  <tbody>
-                    {queriedLogs.map((log, i) => {
-                      const trust = computeTrustScore(log);
+          <label>
+            <input
+              type="checkbox"
+              checked={compareMode}
+              onChange={(e) => setCompareMode(e.target.checked)}
+            /> Enable
+          </label>
 
-                      return (
-                        <tr
-                          key={i}
-                          onClick={() => setSelectedLog(log)}
-                          className="hover:bg-white/40 cursor-pointer"
-                        >
-                          <td className="p-2">
-                            {new Date(log.timestamp).toLocaleString()}
-                          </td>
+          {compareMode && (
+            <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+              <select value={compareIndexA} onChange={e=>setCompareIndexA(Number(e.target.value))}>
+                {clusteredEpisodes.map((e,i)=><option key={i} value={i}>A {e.cluster}</option>)}
+              </select>
 
-                          <td className="p-2">
-                            {hashDeviceId(log.data.identity.agent_id)}
-                          </td>
+              <select value={compareIndexB} onChange={e=>setCompareIndexB(Number(e.target.value))}>
+                {clusteredEpisodes.map((e,i)=><option key={i} value={i}>B {e.cluster}</option>)}
+              </select>
 
-                          <td className="p-2">{trust}</td>
-
-                          <td className="p-2 text-xs">
-                            {trust > 60 ? "CLEAR" : "FLAGGED"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* DETAILS */}
-          <Card className="border border-black/15 bg-white/90">
-            <CardContent>
-              <h2 className="text-xl mb-4">Agent Attestation</h2>
-
-              {selectedLog ? (
-                <div className="text-sm space-y-3">
-
-                  <div>
-                    <div className="font-bold">Verification</div>
-                    <div className="text-xs">
-                      {verifyAttestation(selectedLog).status} —{" "}
-                      {verifyAttestation(selectedLog).reason}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="font-bold">Drift</div>
-                    <div className="text-xs">
-                      {computeDriftScore(
-                        selectedLog.data.identity.agent_id
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="font-bold">Trust</div>
-                    <div className="text-xs">
-                      event: {computeTrustScore(selectedLog)}
-                    </div>
-                  </div>
-
+              {divergence && (
+                <div className="col-span-2 mt-2">
+                  Trust Gap: {divergence.trustGap.toFixed(2)} <br/>
+                  Hazard Gap: {divergence.hazardGap.toFixed(2)}
                 </div>
-              ) : (
-                <p className="text-sm text-gray-500">Select a log</p>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-        </div>
-      </div>
+      {/* EMBEDDING */}
+      <Card>
+        <CardContent>
+          <h2 className="font-bold mb-2">Behavior Embedding Space</h2>
+
+          <div className="relative h-64 bg-white border">
+            {embeddedEpisodes.map((p,i)=>(
+              <div
+                key={i}
+                className="absolute w-2 h-2 rounded-full bg-blue-500"
+                style={{
+                  left: `${p.x}%`,
+                  top: `${Math.min(100,p.y)}%`
+                }}
+              />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
     </div>
   );
 }
