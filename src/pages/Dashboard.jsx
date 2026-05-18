@@ -10,43 +10,22 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-import nacl from "tweetnacl";
-import { createHash } from "crypto";
+/* ---------------- RAW SENSOR LOGS (mock) ---------------- */
 
-/* ---------------- UTIL: STABLE HASHING ---------------- */
-
-function sha256(str) {
-  return createHash("sha256").update(str).digest("hex");
-}
-
-/* deterministic stringify (important for signatures) */
-function stableStringify(obj) {
-  return JSON.stringify(obj, Object.keys(obj).sort());
-}
-
-/* ---------------- RAW MACHINE EVENTS ---------------- */
-
-const rawEvents = (() => {
-  const events = [];
+const rawLogs = (() => {
+  const logs = [];
   const start = Date.now() - 1000 * 60 * 60 * 6;
 
   for (let i = 0; i < 60; i++) {
     const occlusion = Math.random();
     const motion = Math.random();
-
     const command =
       Math.random() > 0.6
         ? ["MOVE", "STOP", "ASSIST"][Math.floor(Math.random() * 3)]
         : null;
 
-    events.push({
-      event_id: `evt_${i}`,
+    logs.push({
       timestamp: new Date(start + i * 60000).toISOString(),
-
-      agent_id: "agent_robot_01",
-
-      operator_id: Math.random() > 0.7 ? "human_456" : null,
-
       raw: {
         sensors: {
           vision: { occlusion },
@@ -54,68 +33,49 @@ const rawEvents = (() => {
           audio: { command },
         },
       },
-
-      policy_id: "policy_safety_v3",
-
-      capability_id: Math.random() > 0.8 ? "cap_spend_001" : "cap_move_001",
-
-      previous_event_hash: i === 0 ? null : `hash_evt_${i - 1}`,
     });
   }
 
-  return events;
+  return logs;
 })();
 
-/* ---------------- ATTESTATION ENGINE ---------------- */
+/* ---------------- INFERENCE STACK ---------------- */
 
-function attest(event) {
-  const occlusion = event.raw.sensors.vision.occlusion;
-  const motion = event.raw.sensors.motion.velocity;
-  const command = event.raw.sensors.audio.command;
+function infer(log) {
+  const occlusion = log.raw.sensors.vision.occlusion;
+  const motion = log.raw.sensors.motion.velocity;
+  const command = log.raw.sensors.audio.command;
 
-  const safety_risk = occlusion * 0.6 + (1 - motion) * 0.4;
-  const stability = 1 - Math.abs(0.5 - motion);
+  const hazard_score = occlusion * 0.6 + (1 - motion) * 0.4;
+  const trust_score = 1 - occlusion * 0.5;
+  const stability_index = 1 - Math.abs(0.5 - motion);
 
-  const executed = command !== "STOP" && safety_risk < 0.75;
-
-  /* ---- canonical event for hashing ---- */
-  const canonical = stableStringify({
-    ...event,
-    derived: { safety_risk, stability },
-    outcome: { executed }
-  });
-
-  const event_hash = sha256(canonical);
-
-  /* ---- mock keypair (replace with real stored keys in prod) ---- */
-  const keyPair = nacl.sign.keyPair();
-  const agent_signature = Buffer.from(
-    nacl.sign.detached(
-      Buffer.from(event_hash),
-      keyPair.secretKey
-    )
-  ).toString("hex");
+  const task_success = command === "ASSIST" && hazard_score < 0.6;
+  const safety_event = hazard_score > 0.75;
 
   return {
-    derived: {
-      safety_risk,
-      stability_index: stability,
+    derived_features: {
+      hazard_score,
+      trust_score,
+      stability_index,
     },
 
-    outcome: {
-      executed,
-      command,
+    outcomes: {
+      task_success,
+      safety_event,
     },
 
-    trust: {
-      machine_trust: 1 - safety_risk,
+    reward_proxies: {
+      safety_reward: 1 - hazard_score,
+      task_reward: task_success ? 1 : 0,
+      comfort_reward: stability_index,
     },
 
     attestation: {
-      event_hash,
-      verified: true,
-      agent_signature,
-      public_key_id: "agent_robot_01_key",
+      verified: Math.random() > 0.2,
+      signature: "sig_" + Math.random().toString(16).slice(2),
+      hash: "hash_" + Math.random().toString(16).slice(2),
+      public_key_id: "key_robotics_fleet_01",
     },
   };
 }
@@ -126,29 +86,33 @@ export default function Dashboard() {
   const [selected, setSelected] = useState(null);
   const [hovered, setHovered] = useState(null);
 
-  const events = useMemo(() => {
-    return rawEvents.map((e) => ({
-      ...e,
-      ...attest(e),
+  const episodes = useMemo(() => {
+    return rawLogs.map((log, i) => ({
+      id: `ep-${i}`,
+      timestamp: log.timestamp,
+      raw: log.raw,
+      ...infer(log),
     }));
   }, []);
 
-  const chartData = useMemo(() => {
-    return events.map((e, i) => ({
+  const volumeData = useMemo(() => {
+    return episodes.map((e, i) => ({
       index: i,
-      safety: e.derived.safety_risk,
-      trust: e.trust.machine_trust,
+      hazard: e.derived_features.hazard_score,
+      trust: e.derived_features.trust_score,
     }));
-  }, [events]);
+  }, [episodes]);
+
+  /* ---------------- EXPORT ---------------- */
 
   const exportJSONL = () => {
-    const jsonl = events.map((e) => JSON.stringify(e)).join("\n");
+    const jsonl = episodes.map((e) => JSON.stringify(e)).join("\n");
     const blob = new Blob([jsonl], { type: "application/json" });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = "attested_events.jsonl";
+    a.download = "behavioral_dataset.jsonl";
     a.click();
 
     URL.revokeObjectURL(url);
@@ -159,12 +123,12 @@ export default function Dashboard() {
 
       {/* HEADER */}
       <div className="fixed top-0 left-0 right-0 h-16 flex justify-between items-center px-7 z-10 bg-[#C8D8E4]/80 backdrop-blur-xl border-b border-black/10">
-        <div className="font-bold">ATTESTATION LEDGER</div>
+        <div className="font-bold">SANGUINE AI</div>
 
         <div className="flex gap-6 text-[11px] uppercase">
-          <Link to="/identity">IDENTITY</Link>
-          <Link to="/policies">POLICY ENGINE</Link>
-          <Link to="/audit">AUDIT GRAPH</Link>
+          <Link to="/profile">PROFILE</Link>
+          <Link to="/documentation">DOCUMENTATION</Link>
+          <Link to="/engine-editor">ENGINE EDITOR</Link>
         </div>
       </div>
 
@@ -174,15 +138,15 @@ export default function Dashboard() {
         <Card>
           <CardContent>
             <h2 className="text-xl font-semibold">
-              Machine Attestation & Observability Dashboard
+              Behavioral Dataset Engine
             </h2>
 
             <p className="text-sm text-gray-600 mt-1">
-              Signed event stream → hash chain → policy binding → verifiable execution history
+              Raw sensor logs → structured behavioral records → probabilistic inference → training-ready episodes
             </p>
 
             <div className="mt-3 text-xs font-mono text-black/70">
-              Cryptographically verifiable autonomous system logs (Ed25519 + SHA256 chain)
+              Signed behavioral datasets for robotics RL, safety evaluation, and fleet analytics
             </div>
           </CardContent>
         </Card>
@@ -190,15 +154,15 @@ export default function Dashboard() {
         {/* SIGNALS */}
         <Card>
           <CardContent>
-            <h2 className="text-xl mb-4">System Risk Signals</h2>
+            <h2 className="text-xl mb-4">System Signals</h2>
 
             <div style={{ width: "100%", height: 240 }}>
               <ResponsiveContainer>
-                <LineChart data={chartData}>
+                <LineChart data={volumeData}>
                   <XAxis dataKey="index" />
                   <YAxis />
                   <Tooltip />
-                  <Line type="monotone" dataKey="safety" stroke="#ff4d4d" />
+                  <Line type="monotone" dataKey="hazard" stroke="#ff4d4d" />
                   <Line type="monotone" dataKey="trust" stroke="#2EC7FF" />
                 </LineChart>
               </ResponsiveContainer>
@@ -206,37 +170,53 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* EVENTS */}
+        {/* EPISODES */}
         <Card>
           <CardContent>
-            <h2 className="text-xl mb-4">Attested Event Stream</h2>
+            <h2 className="text-xl mb-4">Behavioral Episodes</h2>
 
             <div className="space-y-2 max-h-96 overflow-auto">
-              {events.map((e) => (
+              {episodes.map((e) => (
                 <div
-                  key={e.event_id}
+                  key={e.id}
                   onClick={() => setSelected(e)}
                   onMouseEnter={() => setHovered(e)}
                   onMouseLeave={() => setHovered(null)}
                   className="p-3 border cursor-pointer hover:bg-white/50"
                 >
                   <div className="flex justify-between text-sm">
-                    <span>{e.event_id}</span>
+
+                    <span>{e.id}</span>
 
                     <div className="flex gap-2 items-center">
-                      <span className={e.outcome.executed ? "text-green-600" : "text-red-600"}>
-                        {e.outcome.executed ? "EXECUTED" : "BLOCKED"}
+
+                      <span
+                        className={
+                          e.outcomes.safety_event
+                            ? "text-red-600"
+                            : "text-green-600"
+                        }
+                      >
+                        {e.outcomes.safety_event ? "RISK" : "SAFE"}
                       </span>
 
-                      <span className="text-blue-600 text-xs">
-                        HASHED
+                      <span
+                        className={
+                          e.attestation.verified
+                            ? "text-blue-600 text-xs"
+                            : "text-yellow-600 text-xs"
+                        }
+                      >
+                        {e.attestation.verified ? "VERIFIED" : "UNVERIFIED"}
                       </span>
+
                     </div>
+
                   </div>
 
                   <div className="text-xs text-gray-600">
-                    safety: {e.derived.safety_risk.toFixed(2)} | trust:{" "}
-                    {e.trust.machine_trust.toFixed(2)}
+                    hazard: {e.derived_features.hazard_score.toFixed(2)} | trust:{" "}
+                    {e.derived_features.trust_score.toFixed(2)}
                   </div>
                 </div>
               ))}
@@ -244,70 +224,71 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* DETAIL */}
+        {/* DETAIL PANEL */}
         <Card>
           <CardContent>
-            <h2 className="text-xl mb-4">Event Detail</h2>
+            <h2 className="text-xl mb-4">Episode Detail</h2>
 
             {selected ? (
               <div className="text-sm space-y-4">
 
                 <div>
-                  <b>Identity</b>
-                  <div>Agent: {selected.agent_id}</div>
-                  <div>Operator: {selected.operator_id || "none"}</div>
+                  <b>Derived Features</b>
+                  <div>Hazard: {selected.derived_features.hazard_score.toFixed(2)}</div>
+                  <div>Trust: {selected.derived_features.trust_score.toFixed(2)}</div>
+                  <div>Stability: {selected.derived_features.stability_index.toFixed(2)}</div>
                 </div>
 
                 <div>
-                  <b>Policy</b>
-                  <div>{selected.policy_id}</div>
+                  <b>Outcomes</b>
+                  <div>Success: {String(selected.outcomes.task_success)}</div>
+                  <div>Safety Event: {String(selected.outcomes.safety_event)}</div>
                 </div>
 
                 <div>
-                  <b>Derived Risk</b>
-                  <div>Safety: {selected.derived.safety_risk.toFixed(2)}</div>
-                  <div>Stability: {selected.derived.stability_index.toFixed(2)}</div>
+                  <b>Reward Proxies</b>
+                  <div>Safety: {selected.reward_proxies.safety_reward.toFixed(2)}</div>
+                  <div>Task: {selected.reward_proxies.task_reward.toFixed(2)}</div>
+                  <div>Comfort: {selected.reward_proxies.comfort_reward.toFixed(2)}</div>
                 </div>
 
                 <div>
-                  <b>Outcome</b>
-                  <div>Executed: {String(selected.outcome.executed)}</div>
-                  <div>Command: {selected.outcome.command}</div>
-                </div>
-
-                <div>
-                  <b>Cryptographic Attestation</b>
-                  <div className="text-xs break-all">
-                    Hash: {selected.attestation.event_hash}
+                  <b>Attestation</b>
+                  <div>Verified: {String(selected.attestation.verified)}</div>
+                  <div>Public Key: {selected.attestation.public_key_id}</div>
+                  <div className="text-xs text-gray-600">
+                    Signature: {selected.attestation.signature}
                   </div>
-                  <div className="text-xs break-all">
-                    Signature: {selected.attestation.agent_signature}
+                  <div className="text-xs text-gray-600">
+                    Hash: {selected.attestation.hash}
                   </div>
                 </div>
 
               </div>
             ) : (
-              <p className="text-sm text-gray-500">Select an event</p>
+              <p className="text-sm text-gray-500">Select an episode</p>
             )}
           </CardContent>
         </Card>
 
         {/* EXPORT */}
         <Card>
-          <CardContent className="flex justify-between items-center">
-            <div>
-              <h2 className="text-xl">Export Attested Log</h2>
-              <p className="text-sm text-gray-600">
-                JSONL with hashes + signatures for audit or training
-              </p>
-            </div>
+          <CardContent>
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-xl">Dataset Export</h2>
+                <p className="text-sm text-gray-600">
+                  Export signed behavioral episodes as JSONL for ML training
+                </p>
+              </div>
 
-            <button
-              onClick={exportJSONL}
-              className="px-4 py-2 bg-black text-white text-sm hover:bg-gray-800"
-            >
-              Export JSONL
-            </button>
+              <button
+                onClick={exportJSONL}
+                className="px-4 py-2 bg-black text-white text-sm hover:bg-gray-800"
+              >
+                Export JSONL
+              </button>
+            </div>
           </CardContent>
         </Card>
 
@@ -316,8 +297,13 @@ export default function Dashboard() {
       {/* HOVER INSPECTOR */}
       {hovered && (
         <div className="fixed right-6 top-24 w-[420px] max-h-[70vh] overflow-auto bg-black text-green-200 text-[10px] p-3 border border-black/30 shadow-xl z-50">
-          <div className="text-white mb-2 font-bold">Raw Attested Event</div>
-          <pre>{JSON.stringify(hovered, null, 2)}</pre>
+          <div className="text-white mb-2 font-bold">
+            Episode JSON
+          </div>
+
+          <pre className="whitespace-pre-wrap">
+            {JSON.stringify(hovered, null, 2)}
+          </pre>
         </div>
       )}
 
