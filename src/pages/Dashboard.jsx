@@ -146,7 +146,7 @@ export default function Dashboard() {
             </p>
 
             <div className="mt-3 text-xs font-mono text-black/70">
-              Signed behavioral datasets for robotics RL, safety evaluation, and fleet analytics
+              Signed behavioral datasets for robotics and multimodal agent platforms
             </div>
           </CardContent>
         </Card>
