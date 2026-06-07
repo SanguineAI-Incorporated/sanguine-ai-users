@@ -10,19 +10,19 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-/* ---------------- SIMULATION ---------------- */
+/* ---------------- FEATURE STREAM SIMULATION ---------------- */
 
-const sessions = (() => {
+const streams = (() => {
   const data = [];
   const now = Date.now();
 
   const points = 200;
 
-  let sessionId = null;
+  let streamId = null;
   let ttl = 0;
 
-  const makeSessionId = () =>
-    "sess_" + Math.random().toString(16).slice(2, 10);
+  const makeStreamId = () =>
+    "stream_" + Math.random().toString(16).slice(2, 10);
 
   const rand = (a, b) => Math.random() * (b - a) + a;
 
@@ -32,41 +32,33 @@ const sessions = (() => {
     ).toISOString();
 
     if (ttl <= 0) {
-      sessionId = makeSessionId();
+      streamId = makeStreamId();
       ttl = 15 + Math.floor(Math.random() * 30);
     }
     ttl--;
 
-    const speaker_match_score = rand(0.7, 0.99);
-    const presence_score = rand(0.65, 0.98);
+    const embedding_quality = rand(0.6, 0.99);
+    const acoustic_quality = rand(0.55, 0.98);
+    const temporal_stability = rand(0.6, 0.99);
 
-    const synthetic_speech_risk = rand(0, 0.25);
-    const replay_attack_risk = rand(0, 0.2);
+    const noise_level = rand(0, 0.3);
+    const signal_variance = rand(0.05, 0.4);
 
-    const voice_identity_score =
-      speaker_match_score * 0.6 + presence_score * 0.4;
-
-    const cryptographic_control = rand(0, 1) > 0.08; // mostly verified
-
-    const identity_confidence =
-      voice_identity_score * 0.6 +
-      (1 - synthetic_speech_risk) * 0.25 +
-      (cryptographic_control ? 0.15 : 0);
-
-    const presence_stability =
-      1 - (synthetic_speech_risk + replay_attack_risk) / 2;
+    const feature_quality_index =
+      (embedding_quality + acoustic_quality + temporal_stability) /
+        3 -
+      noise_level * 0.5;
 
     data.push({
       timestamp,
-      session_id: sessionId,
+      stream_id: streamId,
 
-      voice_identity_score,
-      cryptographic_control,
-      identity_confidence,
-      presence_stability,
-
-      synthetic_speech_risk,
-      replay_attack_risk,
+      embedding_quality,
+      acoustic_quality,
+      temporal_stability,
+      noise_level,
+      signal_variance,
+      feature_quality_index,
     });
   }
 
@@ -78,78 +70,37 @@ const sessions = (() => {
 export default function Dashboard() {
   const [hovered, setHovered] = useState(null);
 
-  /* ---------------- TIME SERIES ---------------- */
+  /* ---------------- FEATURE EVENT RATE ---------------- */
 
   const chartData = useMemo(() => {
     const map = new Map();
 
-    sessions.forEach((s) => {
+    streams.forEach((s) => {
       const t = s.timestamp;
 
       if (!map.has(t)) {
         map.set(t, {
           time: t,
-          volume: 0,
+          feature_event_rate: 0,
           samples: [],
         });
       }
 
       const entry = map.get(t);
-      entry.volume += 1;
+      entry.feature_event_rate += 1;
       entry.samples.push(s);
     });
 
     return Array.from(map.values());
   }, []);
 
-  /* ---------------- IDENTITY HEADER (KEY PRODUCT LAYER) ---------------- */
-
-  const identityHeader = useMemo(() => {
-    const all = sessions;
-
-    const avg = (key) =>
-      all.reduce((a, b) => a + (b[key] || 0), 0) / all.length;
-
-    const identity = avg("identity_confidence");
-    const voice = avg("voice_identity_score");
-    const presence = avg("presence_stability");
-
-    const cryptoVerified =
-      all.filter((s) => s.cryptographic_control).length /
-        all.length >
-      0.9;
-
-    const risk =
-      all.reduce(
-        (a, b) =>
-          a + (b.synthetic_speech_risk + b.replay_attack_risk) / 2,
-        0
-      ) / all.length;
-
-    const status =
-      identity > 0.9 && cryptoVerified && risk < 0.2
-        ? "AUTHORIZED"
-        : identity > 0.75
-        ? "CHALLENGE"
-        : "BLOCKED";
-
-    return {
-      identity,
-      voice,
-      presence,
-      cryptoVerified,
-      risk,
-      status,
-    };
-  }, []);
-
-  /* ---------------- INSPECTOR ---------------- */
+  /* ---------------- FEATURE SAMPLE DEBUGGER ---------------- */
 
   const Inspector = ({ data }) => {
     if (!data) {
       return (
         <div className="text-sm text-gray-500">
-          Hover over timeline to inspect identity verification stream
+          Hover over the timeline to inspect voice feature streams
         </div>
       );
     }
@@ -157,42 +108,43 @@ export default function Dashboard() {
     return (
       <div className="space-y-3 max-h-[420px] overflow-auto text-xs font-mono">
 
+        {/* HEADER */}
         <div className="p-2 bg-black text-white flex justify-between">
           <span>{data.time}</span>
-          <span>events: {data.volume}</span>
+          <span>feature events: {data.feature_event_rate}</span>
         </div>
 
+        {/* SAMPLES */}
         {data.samples.slice(0, 10).map((s, i) => (
           <div key={i} className="border p-2 bg-white">
 
             <div className="flex justify-between">
               <span className="text-gray-600">
-                {s.session_id}
+                {s.stream_id}
               </span>
 
-              <span
-                className={
-                  s.identity_confidence > 0.9
-                    ? "text-green-600"
-                    : "text-yellow-600"
-                }
-              >
-                {s.cryptographic_control
-                  ? "CRYPTO OK"
-                  : "NO CRYPTO"}
+              <span className="text-blue-600">
+                quality: {s.feature_quality_index.toFixed(2)}
               </span>
             </div>
 
-            <div className="mt-1 text-xs">
-              identity: {s.identity_confidence.toFixed(2)} · voice:{" "}
-              {s.voice_identity_score.toFixed(2)} · presence:{" "}
-              {s.presence_stability.toFixed(2)}
+            <div className="mt-1 grid grid-cols-2 gap-2 text-[10px]">
+              <div>
+                embedding: {s.embedding_quality.toFixed(2)}
+              </div>
+              <div>
+                acoustic: {s.acoustic_quality.toFixed(2)}
+              </div>
+              <div>
+                temporal: {s.temporal_stability.toFixed(2)}
+              </div>
+              <div>
+                noise: {s.noise_level.toFixed(2)}
+              </div>
             </div>
 
             <div className="text-[10px] text-gray-500 mt-1">
-              spoof risk:{" "}
-              {s.synthetic_speech_risk.toFixed(2)} | replay risk:{" "}
-              {s.replay_attack_risk.toFixed(2)}
+              signal variance: {s.signal_variance.toFixed(2)}
             </div>
 
           </div>
@@ -206,7 +158,7 @@ export default function Dashboard() {
 
       {/* HEADER */}
       <div className="fixed top-0 left-0 right-0 h-16 flex justify-between items-center px-7 z-10 bg-[#C8D8E4]/80 backdrop-blur-xl border-b border-black/10">
-        <div className="font-bold">SANGUINE AI</div>
+        <div className="font-bold">VOICE AI LAB</div>
 
         <div className="flex gap-6 text-[11px] uppercase">
           <Link to="/profile">PROFILE</Link>
@@ -217,65 +169,16 @@ export default function Dashboard() {
 
       <div className="pt-24 p-6 max-w-7xl mx-auto space-y-6">
 
-        {/* 🔴 IDENTITY DECISION HEADER (NEW CORE LAYER) */}
+        {/* SYSTEM HEADER */}
         <Card>
           <CardContent>
             <h2 className="text-xl font-semibold">
-              Identity Decision Layer
+              Voice Feature Observability
             </h2>
 
-            <div className="grid grid-cols-5 gap-4 mt-3 text-xs">
-
-              <div>
-                Identity Confidence
-                <div className="font-bold">
-                  {(identityHeader.identity * 100).toFixed(1)}%
-                </div>
-              </div>
-
-              <div>
-                Voice Match
-                <div className="font-bold">
-                  {(identityHeader.voice * 100).toFixed(1)}%
-                </div>
-              </div>
-
-              <div>
-                Presence Stability
-                <div className="font-bold">
-                  {(identityHeader.presence * 100).toFixed(1)}%
-                </div>
-              </div>
-
-              <div>
-                Crypto Control
-                <div className="font-bold">
-                  {identityHeader.cryptoVerified
-                    ? "VERIFIED"
-                    : "UNVERIFIED"}
-                </div>
-              </div>
-
-              <div>
-                Decision
-                <div
-                  className={`font-bold ${
-                    identityHeader.status === "AUTHORIZED"
-                      ? "text-green-600"
-                      : identityHeader.status === "CHALLENGE"
-                      ? "text-yellow-600"
-                      : "text-red-600"
-                  }`}
-                >
-                  {identityHeader.status}
-                </div>
-              </div>
-
-            </div>
-
-            <div className="text-xs text-gray-600 mt-3">
-              Unified real-time identity verdict across voice biometrics + cryptographic proof + behavioral signals
-            </div>
+            <p className="text-sm text-gray-600">
+              Monitoring feature quality and data integrity for voice model training pipelines
+            </p>
           </CardContent>
         </Card>
 
@@ -283,7 +186,7 @@ export default function Dashboard() {
         <Card>
           <CardContent>
             <h2 className="text-xl mb-4">
-              Authentication Volume Stream
+              Feature Event Rate Over Time
             </h2>
 
             <div style={{ width: "100%", height: 300 }}>
@@ -308,9 +211,10 @@ export default function Dashboard() {
                   />
                   <YAxis />
                   <Tooltip />
+
                   <Line
                     type="monotone"
-                    dataKey="volume"
+                    dataKey="feature_event_rate"
                     stroke="#2EC7FF"
                     dot={false}
                   />
@@ -320,11 +224,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* INSPECTOR */}
+        {/* FEATURE INSPECTOR */}
         <Card>
           <CardContent>
             <h2 className="text-xl mb-4">
-              Identity Verification Stream
+              Feature Sample Debugger
             </h2>
 
             <Inspector data={hovered} />
