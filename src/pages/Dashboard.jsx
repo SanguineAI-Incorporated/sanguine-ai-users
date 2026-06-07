@@ -10,13 +10,13 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-/* ---------------- SIMULATION ---------------- */
+/* ---------------- HIGH-FIDELITY SIMULATION ---------------- */
 
 const sessions = (() => {
   const data = [];
   const now = Date.now();
 
-  const points = 432;
+  const points = 200; // fewer timestamps, more volume per timestamp
 
   let sessionId = null;
   let ttl = 0;
@@ -24,40 +24,66 @@ const sessions = (() => {
   const makeSessionId = () =>
     "sess_" + Math.random().toString(16).slice(2, 10);
 
+  const rand = (min, max) =>
+    Math.random() * (max - min) + min;
+
   for (let i = 0; i < points; i++) {
-    const timestamp = new Date(
-      now - (points - i) * 10 * 60 * 1000
+    const baseTime = new Date(
+      now - (points - i) * 20 * 60 * 1000
     ).toISOString();
 
     if (ttl <= 0) {
       sessionId = makeSessionId();
-      ttl = 20 + Math.floor(Math.random() * 40);
+      ttl = 15 + Math.floor(Math.random() * 30);
     }
     ttl--;
 
-    const speaker_match_score = 0.7 + Math.random() * 0.3;
-    const presence_score = 0.65 + Math.random() * 0.35;
+    // 🔥 10+ events per timestamp (realistic concurrency)
+    const eventCount = 10 + Math.floor(Math.random() * 6);
 
-    const synthetic_speech_risk = Math.random() * 0.2;
-    const replay_attack_risk = Math.random() * 0.15;
+    for (let j = 0; j < eventCount; j++) {
+      const speaker_match_score = rand(0.65, 0.99);
+      const presence_score = rand(0.6, 0.98);
 
-    const identity_assurance_score =
-      speaker_match_score * 0.5 +
-      presence_score * 0.3 +
-      (1 - synthetic_speech_risk) * 0.2;
+      const synthetic_speech_risk = rand(0, 0.25);
+      const replay_attack_risk = rand(0, 0.2);
 
-    const session_integrity_score =
-      1 - (synthetic_speech_risk + replay_attack_risk) / 2;
+      const identity_assurance_score =
+        speaker_match_score * 0.5 +
+        presence_score * 0.3 +
+        (1 - synthetic_speech_risk) * 0.2;
 
-    data.push({
-      timestamp,
-      session_id: sessionId,
+      const session_integrity_score =
+        1 - (synthetic_speech_risk + replay_attack_risk) / 2;
 
-      identity_assurance_score,
-      session_integrity_score,
-      synthetic_speech_risk,
-      replay_attack_risk,
-    });
+      const request_id =
+        "req_" + Math.random().toString(16).slice(2, 10);
+
+      data.push({
+        timestamp: baseTime,
+        session_id: sessionId,
+        request_id,
+
+        identity_assurance_score,
+        session_integrity_score,
+        synthetic_speech_risk,
+        replay_attack_risk,
+
+        request: {
+          audio_chunk: "base64_audio_mock",
+          agent_id: sessionId,
+        },
+
+        response: {
+          status:
+            identity_assurance_score > 0.9
+              ? "ALLOW"
+              : identity_assurance_score > 0.75
+              ? "CHALLENGE"
+              : "DENY",
+        },
+      });
+    }
   }
 
   return data;
@@ -66,9 +92,9 @@ const sessions = (() => {
 /* ---------------- DASHBOARD ---------------- */
 
 export default function Dashboard() {
-  const [hoveredPoint, setHoveredPoint] = useState(null);
+  const [hovered, setHovered] = useState(null);
 
-  /* ---------------- AGGREGATE: SESSION VOLUME OVER TIME ---------------- */
+  /* ---------------- AGGREGATED VOLUME ---------------- */
 
   const chartData = useMemo(() => {
     const map = new Map();
@@ -80,53 +106,93 @@ export default function Dashboard() {
         map.set(t, {
           time: t,
           volume: 0,
-          sessions: new Set(),
-          sample: null,
+          samples: [],
         });
       }
 
       const entry = map.get(t);
       entry.volume += 1;
-      entry.sessions.add(s.session_id);
-      entry.sample = s;
+      entry.samples.push(s);
     });
 
-    return Array.from(map.values()).map((d) => ({
-      time: d.time,
-      volume: d.volume,
-      session_id: Array.from(d.sessions)[0],
-      sample: d.sample,
-    }));
+    return Array.from(map.values());
   }, []);
 
-  /* ---------------- MOCK REQUEST/RESPONSE ---------------- */
+  /* ---------------- Sumo Logic–style log view ---------------- */
 
-  const buildRequest = (sample) => ({
-    agent_id: sample?.session_id,
-    input: {
-      audio_stream: "base64:mock_audio_chunk",
-      timestamp: sample?.timestamp,
-    },
-    context: {
-      speaker_match_score: sample?.identity_assurance_score,
-      presence_score: sample?.session_integrity_score,
-    },
-  });
+  const Inspector = ({ data }) => {
+    if (!data) {
+      return (
+        <div className="text-sm text-gray-500">
+          Hover over a point to inspect live authentication logs
+        </div>
+      );
+    }
 
-  const buildResponse = (sample) => ({
-    identity_assurance_score: sample?.identity_assurance_score,
-    session_integrity_score: sample?.session_integrity_score,
-    anti_spoofing: {
-      synthetic_speech_risk: sample?.synthetic_speech_risk,
-      replay_attack_risk: sample?.replay_attack_risk,
-    },
-    authorization: {
-      status:
-        sample?.identity_assurance_score > 0.9
-          ? "FULL"
-          : "LIMITED",
-    },
-  });
+    return (
+      <div className="space-y-3 max-h-[420px] overflow-auto text-xs font-mono">
+
+        {/* SUMMARY BAR */}
+        <div className="p-2 bg-black text-white flex justify-between">
+          <span>{data.time}</span>
+          <span>events: {data.volume}</span>
+        </div>
+
+        {/* STREAM */}
+        {data.samples.slice(0, 12).map((s, i) => (
+          <div key={i} className="border p-2 bg-white">
+
+            <div className="flex justify-between">
+              <span className="text-gray-600">
+                {s.request_id}
+              </span>
+
+              <span
+                className={
+                  s.identity_assurance_score > 0.9
+                    ? "text-green-600"
+                    : s.identity_assurance_score > 0.75
+                    ? "text-yellow-600"
+                    : "text-red-600"
+                }
+              >
+                {s.response.status}
+              </span>
+            </div>
+
+            <div className="mt-1 text-gray-700">
+              session: {s.session_id}
+            </div>
+
+            <div className="mt-1 grid grid-cols-2 gap-2 text-[10px]">
+              <div>
+                identity:{" "}
+                {s.identity_assurance_score.toFixed(2)}
+              </div>
+              <div>
+                integrity:{" "}
+                {s.session_integrity_score.toFixed(2)}
+              </div>
+              <div>
+                spoof risk:{" "}
+                {s.synthetic_speech_risk.toFixed(2)}
+              </div>
+              <div>
+                replay risk:{" "}
+                {s.replay_attack_risk.toFixed(2)}
+              </div>
+            </div>
+
+            <div className="mt-2 text-[10px] text-gray-500">
+              req: {JSON.stringify(s.request)} <br />
+              res: {JSON.stringify(s.response)}
+            </div>
+
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#C8D8E4] text-black">
@@ -148,10 +214,10 @@ export default function Dashboard() {
         <Card>
           <CardContent>
             <h2 className="text-xl font-semibold">
-              Continuous Identity Telemetry
+              Identity Telemetry Stream
             </h2>
             <p className="text-sm text-gray-600">
-              Session activity volume + forensic identity inspection layer
+              High-volume continuous authentication logs (10–16 events per timestamp)
             </p>
           </CardContent>
         </Card>
@@ -160,7 +226,7 @@ export default function Dashboard() {
         <Card>
           <CardContent>
             <h2 className="text-xl mb-4">
-              Session Volume (3-Day Timeline)
+              Authentication Volume Over Time
             </h2>
 
             <div style={{ width: "100%", height: 300 }}>
@@ -169,12 +235,10 @@ export default function Dashboard() {
                   data={chartData}
                   onMouseMove={(state) => {
                     if (state?.activePayload?.[0]) {
-                      setHoveredPoint(
-                        state.activePayload[0].payload
-                      );
+                      setHovered(state.activePayload[0].payload);
                     }
                   }}
-                  onMouseLeave={() => setHoveredPoint(null)}
+                  onMouseLeave={() => setHovered(null)}
                 >
                   <XAxis
                     dataKey="time"
@@ -200,44 +264,14 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* REQUEST / RESPONSE INSPECTOR */}
+        {/* SUMO-STYLE INSPECTOR */}
         <Card>
           <CardContent>
             <h2 className="text-xl mb-4">
-              Live Session Inspector
+              Live Authentication Log Stream
             </h2>
 
-            {hoveredPoint ? (
-              <div className="grid grid-cols-2 gap-4 text-xs">
-
-                <div>
-                  <b>Request JSON</b>
-                  <pre className="mt-2 bg-white p-2 border overflow-auto">
-                    {JSON.stringify(
-                      buildRequest(hoveredPoint.sample),
-                      null,
-                      2
-                    )}
-                  </pre>
-                </div>
-
-                <div>
-                  <b>Response JSON</b>
-                  <pre className="mt-2 bg-white p-2 border overflow-auto">
-                    {JSON.stringify(
-                      buildResponse(hoveredPoint.sample),
-                      null,
-                      2
-                    )}
-                  </pre>
-                </div>
-
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500">
-                Hover over the timeline to inspect session telemetry
-              </p>
-            )}
+            <Inspector data={hovered} />
           </CardContent>
         </Card>
 
