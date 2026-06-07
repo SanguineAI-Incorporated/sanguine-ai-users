@@ -151,23 +151,6 @@ export default function Documentation() {
           </p>
         </div>
 
-        {/* ARCHITECTURE */}
-        <div className="bg-white/90 border border-black/10 rounded-lg p-5">
-          <h2 className="text-xl font-semibold mb-4">
-            Assurance Architecture
-          </h2>
-
-          <div className="text-sm space-y-2 font-mono">
-            <div>Identity</div>
-            <div>↓</div>
-            <div>Presence</div>
-            <div>↓</div>
-            <div>Trust</div>
-            <div>↓</div>
-            <div>Authorization</div>
-          </div>
-        </div>
-
         {/* DATASET SCHEMA */}
         <div className="bg-white/90 border border-black/10 rounded-lg p-5">
           <h2 className="text-xl font-semibold mb-4">
