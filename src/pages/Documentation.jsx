@@ -2,103 +2,116 @@ import React from "react";
 
 export default function Documentation() {
   const featureGroups = {
-    core_attestation: [
+    identity_layer: [
       {
-        name: "identity.agent_id",
-        desc: "Cryptographically linked autonomous agent identifier",
+        name: "identity.user_id",
+        desc: "Cryptographically anchored user identifier",
+      },
+      {
+        name: "identity.session_id",
+        desc: "Unique session identifier linking trust events over time",
       },
       {
         name: "identity.signature",
-        desc: "Signed attestation hash verifying event authenticity",
+        desc: "Signed proof-of-control generated from a trusted credential",
       },
       {
-        name: "policy.triggered",
-        desc: "Indicates whether safety or runtime policy was triggered",
-      },
-      {
-        name: "policy.mode",
-        desc: "Attestation generation mode (e.g., real-time, batch, offline)",
+        name: "identity.credential_status",
+        desc: "Verification status of the associated passkey or device credential",
       },
     ],
 
-    derived_features: [
+    speaker_assurance: [
       {
-        name: "features.vision_embedding_quality",
-        desc: "Derived visual feature confidence from encoded perception pipeline",
+        name: "speaker_match_score",
+        desc: "Similarity score between the active speaker and enrolled voice profile",
       },
       {
-        name: "features.motion_dynamics",
-        desc: "Encoded representation of spatial movement and trajectory stability",
+        name: "speaker_continuity",
+        desc: "Confidence that the same speaker remains present throughout the session",
       },
       {
-        name: "features.audio_event_score",
-        desc: "Derived acoustic activity signal from local audio feature extraction",
-      },
-    ],
-
-    inference_layer: [
-      {
-        name: "inference.hazard_score",
-        desc: "Multi-modal risk estimate derived from fused feature space",
-      },
-      {
-        name: "inference.model_confidence",
-        desc: "Confidence score of inference pipeline across modalities",
+        name: "presence_score",
+        desc: "Estimated confidence that the authenticated user is actively participating",
       },
     ],
 
-    verification_layer: [
+    anti_spoofing: [
       {
-        name: "attestation_status",
-        desc: "Verification state of a behavioral record (VERIFIED, DEGRADED, INVALID)",
+        name: "synthetic_speech_risk",
+        desc: "Likelihood that speech was generated or modified by AI systems",
       },
       {
-        name: "verification_reason",
-        desc: "Explanation of why an attestation passed or failed validation checks",
-      },
-    ],
-
-    trust_system: [
-      {
-        name: "trust_score",
-        desc: "Aggregated reliability score computed from hazard, motion, and vision signals",
+        name: "replay_attack_risk",
+        desc: "Likelihood that recorded audio is being replayed",
       },
       {
-        name: "agent_trust_avg",
-        desc: "Historical average trust score across all attestations for an agent",
+        name: "voice_conversion_risk",
+        desc: "Likelihood of real-time voice transformation or impersonation",
+      },
+      {
+        name: "audio_authenticity_score",
+        desc: "Overall confidence that speech originated from a live human source",
       },
     ],
 
-    drift_system: [
+    trust_engine: [
       {
-        name: "drift_score",
-        desc: "Magnitude of behavioral change in agent trust over time",
+        name: "identity_assurance_score",
+        desc: "Composite confidence score across biometric and cryptographic signals",
       },
+      {
+        name: "session_integrity_score",
+        desc: "Confidence that session ownership has not changed over time",
+      },
+      {
+        name: "agent_trust_score",
+        desc: "Overall trust level used by autonomous agents for decision making",
+      },
+    ],
+
+    authorization: [
+      {
+        name: "authorization_state",
+        desc: "Current permission level available to the autonomous agent",
+      },
+      {
+        name: "action_approval",
+        desc: "Verification status for sensitive actions requiring user approval",
+      },
+      {
+        name: "proof_of_control",
+        desc: "Cryptographic confirmation that the credential holder authorized an action",
+      },
+    ],
+
+    drift_detection: [
       {
         name: "behavioral_shift",
-        desc: "Indicator of deviation between historical and recent agent behavior",
-      },
-    ],
-
-    environment: [
-      {
-        name: "environment.location_id",
-        desc: "Spatial or operational zone identifier",
+        desc: "Deviation from historical interaction patterns",
       },
       {
-        name: "environment.lighting_condition",
-        desc: "Contextual environmental condition affecting perception quality",
+        name: "trust_drift_score",
+        desc: "Longitudinal change in trust signals across sessions",
+      },
+      {
+        name: "speaker_profile_drift",
+        desc: "Observed evolution of speaker characteristics over time",
       },
     ],
   };
 
-  const dataset_schema = [
-    ["timestamp", "Time-aligned attestation event time"],
-    ["agent_id", "Unique autonomous system identifier"],
-    ["features", "Derived multimodal behavioral feature vector"],
-    ["inference", "Fused model outputs (risk + confidence)"],
-    ["trust_score", "Computed reliability score per event"],
-    ["label", "Training-grade trust label for dataset export"],
+  const datasetSchema = [
+    ["timestamp", "Time-aligned trust event timestamp"],
+    ["user_id", "Cryptographically anchored identity"],
+    ["session_id", "Continuous assurance session identifier"],
+    ["speaker_match_score", "Voice identity similarity score"],
+    ["presence_score", "Estimated user presence confidence"],
+    ["synthetic_speech_risk", "AI-generated speech likelihood"],
+    ["replay_attack_risk", "Recorded audio replay likelihood"],
+    ["identity_assurance_score", "Composite trust score"],
+    ["authorization_state", "Current agent permission level"],
+    ["proof_of_control", "Cryptographic authorization status"],
   ];
 
   return (
@@ -107,28 +120,62 @@ export default function Documentation() {
 
         {/* HEADER */}
         <div>
-          <h1 className="text-3xl font-bold">Agent Attestation Documentation</h1>
-          <p className="text-sm text-gray-600">
-            Privacy-preserving behavioral intelligence schema for autonomous systems
+          <h1 className="text-3xl font-bold">
+            Continuous Identity Assurance
+          </h1>
+
+          <p className="text-sm text-gray-700 mt-1">
+            For Autonomous Voice Agents
+          </p>
+
+          <p className="text-sm text-gray-600 mt-3 max-w-3xl">
+            Cryptographic proof of control combined with passive
+            voice-based presence verification.
           </p>
         </div>
 
-        {/* SYSTEM OVERVIEW */}
+        {/* OVERVIEW */}
         <div className="bg-white/90 border border-black/10 rounded-lg p-5 text-sm">
           <p>
-            The Agent Attestation system converts multimodal sensor inputs into
-            structured, time-aligned behavioral metadata. Instead of storing raw
-            perception data, the system exports derived features, inference outputs,
-            and cryptographically signed attestations for verification, trust scoring,
-            and downstream dataset generation.
+            Traditional authentication verifies identity once and assumes
+            trust indefinitely. Autonomous voice agents require continuous
+            assurance that the authorized user remains present and in
+            control of the session.
           </p>
+
+          <p className="mt-3">
+            Our platform combines cryptographic credentials, passive
+            speaker verification, anti-spoofing analysis, and session
+            integrity monitoring to continuously evaluate whether an
+            agent should continue acting on behalf of a user.
+          </p>
+        </div>
+
+        {/* ARCHITECTURE */}
+        <div className="bg-white/90 border border-black/10 rounded-lg p-5">
+          <h2 className="text-xl font-semibold mb-4">
+            Assurance Architecture
+          </h2>
+
+          <div className="text-sm space-y-2 font-mono">
+            <div>Identity</div>
+            <div>↓</div>
+            <div>Presence</div>
+            <div>↓</div>
+            <div>Trust</div>
+            <div>↓</div>
+            <div>Authorization</div>
+          </div>
         </div>
 
         {/* DATASET SCHEMA */}
         <div className="bg-white/90 border border-black/10 rounded-lg p-5">
-          <h2 className="text-xl font-semibold mb-4">Dataset Export Schema</h2>
+          <h2 className="text-xl font-semibold mb-4">
+            Dataset Export Schema
+          </h2>
+
           <ul className="space-y-2 text-sm">
-            {dataset_schema.map(([name, desc]) => (
+            {datasetSchema.map(([name, desc]) => (
               <li key={name}>
                 <strong>{name}</strong> — {desc}
               </li>
@@ -147,9 +194,9 @@ export default function Documentation() {
             </h2>
 
             <ul className="space-y-2 text-sm">
-              {list.map((f) => (
-                <li key={f.name}>
-                  <strong>{f.name}</strong> — {f.desc}
+              {list.map((feature) => (
+                <li key={feature.name}>
+                  <strong>{feature.name}</strong> — {feature.desc}
                 </li>
               ))}
             </ul>
