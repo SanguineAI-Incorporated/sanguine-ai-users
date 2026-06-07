@@ -10,13 +10,13 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-/* ---------------- HIGH-FIDELITY SIMULATION ---------------- */
+/* ---------------- SIMULATION ---------------- */
 
 const sessions = (() => {
   const data = [];
   const now = Date.now();
 
-  const points = 200; // fewer timestamps, more volume per timestamp
+  const points = 200;
 
   let sessionId = null;
   let ttl = 0;
@@ -24,11 +24,10 @@ const sessions = (() => {
   const makeSessionId = () =>
     "sess_" + Math.random().toString(16).slice(2, 10);
 
-  const rand = (min, max) =>
-    Math.random() * (max - min) + min;
+  const rand = (a, b) => Math.random() * (b - a) + a;
 
   for (let i = 0; i < points; i++) {
-    const baseTime = new Date(
+    const timestamp = new Date(
       now - (points - i) * 20 * 60 * 1000
     ).toISOString();
 
@@ -38,52 +37,37 @@ const sessions = (() => {
     }
     ttl--;
 
-    // 🔥 10+ events per timestamp (realistic concurrency)
-    const eventCount = 10 + Math.floor(Math.random() * 6);
+    const speaker_match_score = rand(0.7, 0.99);
+    const presence_score = rand(0.65, 0.98);
 
-    for (let j = 0; j < eventCount; j++) {
-      const speaker_match_score = rand(0.65, 0.99);
-      const presence_score = rand(0.6, 0.98);
+    const synthetic_speech_risk = rand(0, 0.25);
+    const replay_attack_risk = rand(0, 0.2);
 
-      const synthetic_speech_risk = rand(0, 0.25);
-      const replay_attack_risk = rand(0, 0.2);
+    const voice_identity_score =
+      speaker_match_score * 0.6 + presence_score * 0.4;
 
-      const identity_assurance_score =
-        speaker_match_score * 0.5 +
-        presence_score * 0.3 +
-        (1 - synthetic_speech_risk) * 0.2;
+    const cryptographic_control = rand(0, 1) > 0.08; // mostly verified
 
-      const session_integrity_score =
-        1 - (synthetic_speech_risk + replay_attack_risk) / 2;
+    const identity_confidence =
+      voice_identity_score * 0.6 +
+      (1 - synthetic_speech_risk) * 0.25 +
+      (cryptographic_control ? 0.15 : 0);
 
-      const request_id =
-        "req_" + Math.random().toString(16).slice(2, 10);
+    const presence_stability =
+      1 - (synthetic_speech_risk + replay_attack_risk) / 2;
 
-      data.push({
-        timestamp: baseTime,
-        session_id: sessionId,
-        request_id,
+    data.push({
+      timestamp,
+      session_id: sessionId,
 
-        identity_assurance_score,
-        session_integrity_score,
-        synthetic_speech_risk,
-        replay_attack_risk,
+      voice_identity_score,
+      cryptographic_control,
+      identity_confidence,
+      presence_stability,
 
-        request: {
-          audio_chunk: "base64_audio_mock",
-          agent_id: sessionId,
-        },
-
-        response: {
-          status:
-            identity_assurance_score > 0.9
-              ? "ALLOW"
-              : identity_assurance_score > 0.75
-              ? "CHALLENGE"
-              : "DENY",
-        },
-      });
-    }
+      synthetic_speech_risk,
+      replay_attack_risk,
+    });
   }
 
   return data;
@@ -94,7 +78,7 @@ const sessions = (() => {
 export default function Dashboard() {
   const [hovered, setHovered] = useState(null);
 
-  /* ---------------- AGGREGATED VOLUME ---------------- */
+  /* ---------------- TIME SERIES ---------------- */
 
   const chartData = useMemo(() => {
     const map = new Map();
@@ -118,13 +102,54 @@ export default function Dashboard() {
     return Array.from(map.values());
   }, []);
 
-  /* ---------------- Sumo Logic–style log view ---------------- */
+  /* ---------------- IDENTITY HEADER (KEY PRODUCT LAYER) ---------------- */
+
+  const identityHeader = useMemo(() => {
+    const all = sessions;
+
+    const avg = (key) =>
+      all.reduce((a, b) => a + (b[key] || 0), 0) / all.length;
+
+    const identity = avg("identity_confidence");
+    const voice = avg("voice_identity_score");
+    const presence = avg("presence_stability");
+
+    const cryptoVerified =
+      all.filter((s) => s.cryptographic_control).length /
+        all.length >
+      0.9;
+
+    const risk =
+      all.reduce(
+        (a, b) =>
+          a + (b.synthetic_speech_risk + b.replay_attack_risk) / 2,
+        0
+      ) / all.length;
+
+    const status =
+      identity > 0.9 && cryptoVerified && risk < 0.2
+        ? "AUTHORIZED"
+        : identity > 0.75
+        ? "CHALLENGE"
+        : "BLOCKED";
+
+    return {
+      identity,
+      voice,
+      presence,
+      cryptoVerified,
+      risk,
+      status,
+    };
+  }, []);
+
+  /* ---------------- INSPECTOR ---------------- */
 
   const Inspector = ({ data }) => {
     if (!data) {
       return (
         <div className="text-sm text-gray-500">
-          Hover over a point to inspect live authentication logs
+          Hover over timeline to inspect identity verification stream
         </div>
       );
     }
@@ -132,60 +157,42 @@ export default function Dashboard() {
     return (
       <div className="space-y-3 max-h-[420px] overflow-auto text-xs font-mono">
 
-        {/* SUMMARY BAR */}
         <div className="p-2 bg-black text-white flex justify-between">
           <span>{data.time}</span>
           <span>events: {data.volume}</span>
         </div>
 
-        {/* STREAM */}
-        {data.samples.slice(0, 12).map((s, i) => (
+        {data.samples.slice(0, 10).map((s, i) => (
           <div key={i} className="border p-2 bg-white">
 
             <div className="flex justify-between">
               <span className="text-gray-600">
-                {s.request_id}
+                {s.session_id}
               </span>
 
               <span
                 className={
-                  s.identity_assurance_score > 0.9
+                  s.identity_confidence > 0.9
                     ? "text-green-600"
-                    : s.identity_assurance_score > 0.75
-                    ? "text-yellow-600"
-                    : "text-red-600"
+                    : "text-yellow-600"
                 }
               >
-                {s.response.status}
+                {s.cryptographic_control
+                  ? "CRYPTO OK"
+                  : "NO CRYPTO"}
               </span>
             </div>
 
-            <div className="mt-1 text-gray-700">
-              session: {s.session_id}
+            <div className="mt-1 text-xs">
+              identity: {s.identity_confidence.toFixed(2)} · voice:{" "}
+              {s.voice_identity_score.toFixed(2)} · presence:{" "}
+              {s.presence_stability.toFixed(2)}
             </div>
 
-            <div className="mt-1 grid grid-cols-2 gap-2 text-[10px]">
-              <div>
-                identity:{" "}
-                {s.identity_assurance_score.toFixed(2)}
-              </div>
-              <div>
-                integrity:{" "}
-                {s.session_integrity_score.toFixed(2)}
-              </div>
-              <div>
-                spoof risk:{" "}
-                {s.synthetic_speech_risk.toFixed(2)}
-              </div>
-              <div>
-                replay risk:{" "}
-                {s.replay_attack_risk.toFixed(2)}
-              </div>
-            </div>
-
-            <div className="mt-2 text-[10px] text-gray-500">
-              req: {JSON.stringify(s.request)} <br />
-              res: {JSON.stringify(s.response)}
+            <div className="text-[10px] text-gray-500 mt-1">
+              spoof risk:{" "}
+              {s.synthetic_speech_risk.toFixed(2)} | replay risk:{" "}
+              {s.replay_attack_risk.toFixed(2)}
             </div>
 
           </div>
@@ -210,15 +217,65 @@ export default function Dashboard() {
 
       <div className="pt-24 p-6 max-w-7xl mx-auto space-y-6">
 
-        {/* HEADER */}
+        {/* 🔴 IDENTITY DECISION HEADER (NEW CORE LAYER) */}
         <Card>
           <CardContent>
             <h2 className="text-xl font-semibold">
-              Identity Telemetry Stream
+              Identity Decision Layer
             </h2>
-            <p className="text-sm text-gray-600">
-              High-volume continuous authentication logs (10–16 events per timestamp)
-            </p>
+
+            <div className="grid grid-cols-5 gap-4 mt-3 text-xs">
+
+              <div>
+                Identity Confidence
+                <div className="font-bold">
+                  {(identityHeader.identity * 100).toFixed(1)}%
+                </div>
+              </div>
+
+              <div>
+                Voice Match
+                <div className="font-bold">
+                  {(identityHeader.voice * 100).toFixed(1)}%
+                </div>
+              </div>
+
+              <div>
+                Presence Stability
+                <div className="font-bold">
+                  {(identityHeader.presence * 100).toFixed(1)}%
+                </div>
+              </div>
+
+              <div>
+                Crypto Control
+                <div className="font-bold">
+                  {identityHeader.cryptoVerified
+                    ? "VERIFIED"
+                    : "UNVERIFIED"}
+                </div>
+              </div>
+
+              <div>
+                Decision
+                <div
+                  className={`font-bold ${
+                    identityHeader.status === "AUTHORIZED"
+                      ? "text-green-600"
+                      : identityHeader.status === "CHALLENGE"
+                      ? "text-yellow-600"
+                      : "text-red-600"
+                  }`}
+                >
+                  {identityHeader.status}
+                </div>
+              </div>
+
+            </div>
+
+            <div className="text-xs text-gray-600 mt-3">
+              Unified real-time identity verdict across voice biometrics + cryptographic proof + behavioral signals
+            </div>
           </CardContent>
         </Card>
 
@@ -226,7 +283,7 @@ export default function Dashboard() {
         <Card>
           <CardContent>
             <h2 className="text-xl mb-4">
-              Authentication Volume Over Time
+              Authentication Volume Stream
             </h2>
 
             <div style={{ width: "100%", height: 300 }}>
@@ -251,7 +308,6 @@ export default function Dashboard() {
                   />
                   <YAxis />
                   <Tooltip />
-
                   <Line
                     type="monotone"
                     dataKey="volume"
@@ -264,11 +320,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* SUMO-STYLE INSPECTOR */}
+        {/* INSPECTOR */}
         <Card>
           <CardContent>
             <h2 className="text-xl mb-4">
-              Live Authentication Log Stream
+              Identity Verification Stream
             </h2>
 
             <Inspector data={hovered} />
