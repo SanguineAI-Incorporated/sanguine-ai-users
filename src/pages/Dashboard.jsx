@@ -10,28 +10,43 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-/* ---------------- 3-DAY CONTINUOUS SIMULATION ---------------- */
+/* ---------------- 3-DAY SESSION SIMULATION ---------------- */
 
 const sessions = (() => {
   const data = [];
   const now = Date.now();
 
-  const points = 432; // 3 days @ 10-min resolution
+  const points = 432;
 
-  let sessionCounter = 0;
-  let sessionTTL = 0;
+  let sessionId = null;
+  let ttl = 0;
+
+  let sessionStart = null;
+
+  const makeSessionId = () =>
+    "sess_" + Math.random().toString(16).slice(2, 10);
+
+  const pickTerminationReason = () => {
+    const r = Math.random();
+    if (r < 0.6) return "timeout";
+    if (r < 0.85) return "re_auth";
+    return "risk";
+  };
 
   for (let i = 0; i < points; i++) {
     const timestamp = new Date(
       now - (points - i) * 10 * 60 * 1000
     ).toISOString();
 
-    // session boundaries
-    if (sessionTTL <= 0) {
-      sessionCounter++;
-      sessionTTL = 20 + Math.floor(Math.random() * 40);
+    if (ttl <= 0) {
+      sessionId = makeSessionId();
+      sessionStart = timestamp;
+      ttl = 20 + Math.floor(Math.random() * 40);
     }
-    sessionTTL--;
+
+    ttl--;
+
+    const isSessionEnd = ttl === 0;
 
     const speaker_match_score = 0.7 + Math.random() * 0.3;
     const presence_score = 0.65 + Math.random() * 0.35;
@@ -47,17 +62,16 @@ const sessions = (() => {
     const session_integrity_score =
       1 - (synthetic_speech_risk + replay_attack_risk) / 2;
 
-    const autonomy_confidence =
-      identity_assurance_score * session_integrity_score;
-
     data.push({
       timestamp,
-      session_id: `session_${sessionCounter}`,
+
+      session_id: sessionId,
+      session_start: sessionStart,
+      session_end: isSessionEnd ? timestamp : null,
+      termination_reason: isSessionEnd ? pickTerminationReason() : null,
 
       identity_assurance_score,
       session_integrity_score,
-      autonomy_confidence,
-
       synthetic_speech_risk,
       replay_attack_risk,
     });
@@ -71,7 +85,7 @@ const sessions = (() => {
 export default function Dashboard() {
   const [selectedSession, setSelectedSession] = useState(null);
 
-  /* ---------------- CHART DATA ---------------- */
+  /* ---------------- TIME SERIES ---------------- */
 
   const chartData = useMemo(() => {
     return sessions.map((d) => ({
@@ -84,6 +98,39 @@ export default function Dashboard() {
   }, []);
 
   /* ---------------- SESSION GROUPING ---------------- */
+
+  const sessionMeta = useMemo(() => {
+    const map = new Map();
+
+    sessions.forEach((s) => {
+      if (!map.has(s.session_id)) {
+        map.set(s.session_id, {
+          session_id: s.session_id,
+          count: 0,
+          identity_sum: 0,
+          integrity_sum: 0,
+          termination_reason: null,
+        });
+      }
+
+      const m = map.get(s.session_id);
+
+      m.count++;
+      m.identity_sum += s.identity_assurance_score;
+      m.integrity_sum += s.session_integrity_score;
+
+      if (s.session_end) {
+        m.termination_reason = s.termination_reason;
+      }
+    });
+
+    return Array.from(map.values()).map((m) => ({
+      session_id: m.session_id,
+      avg_identity: m.identity_sum / m.count,
+      avg_integrity: m.integrity_sum / m.count,
+      termination_reason: m.termination_reason,
+    }));
+  }, []);
 
   const sessionsMap = useMemo(() => {
     const map = new Map();
@@ -98,9 +145,9 @@ export default function Dashboard() {
     return Array.from(map.entries());
   }, [chartData]);
 
-  const getOpacity = (sessionId) => {
+  const getOpacity = (id) => {
     if (!selectedSession) return 1;
-    return sessionId === selectedSession ? 1 : 0.12;
+    return selectedSession === id ? 1 : 0.12;
   };
 
   return (
@@ -136,7 +183,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* SESSION OVERLAY SELECTOR */}
+        {/* SESSION OVERLAY */}
         <Card>
           <CardContent>
             <h2 className="text-xl mb-3">Session Overlay Mode</h2>
@@ -156,7 +203,7 @@ export default function Dashboard() {
                       : "bg-white"
                   }`}
                 >
-                  {id}
+                  {id.slice(0, 10)}...
                 </button>
               ))}
 
@@ -167,14 +214,10 @@ export default function Dashboard() {
                 Clear
               </button>
             </div>
-
-            <p className="text-xs text-gray-500 mt-2">
-              Click a session to isolate its identity trajectory across 3 days
-            </p>
           </CardContent>
         </Card>
 
-        {/* TIMELINE CHART */}
+        {/* TIMELINE */}
         <Card>
           <CardContent>
             <h2 className="text-xl mb-4">
@@ -194,11 +237,7 @@ export default function Dashboard() {
                     }
                   />
                   <YAxis />
-                  <Tooltip
-                    labelFormatter={(t) =>
-                      new Date(t).toLocaleString()
-                    }
-                  />
+                  <Tooltip />
 
                   {sessionsMap.map(([sessionId, points]) => {
                     const opacity = getOpacity(sessionId);
@@ -239,7 +278,7 @@ export default function Dashboard() {
             </div>
 
             <div className="text-xs text-gray-600 mt-2">
-              Blue = identity assurance · Green = session integrity · Red = spoofing risk · faded = inactive sessions
+              Blue = identity · Green = integrity · Red = spoof risk · faded = inactive sessions
             </div>
           </CardContent>
         </Card>
@@ -250,54 +289,52 @@ export default function Dashboard() {
             <h2 className="text-xl mb-4">Sessions</h2>
 
             <div className="space-y-2 max-h-96 overflow-auto">
-              {[...new Set(sessions.map((s) => s.session_id))].map((id) => {
-                const subset = sessions.filter((s) => s.session_id === id);
+              {sessionMeta.map((s) => (
+                <div
+                  key={s.session_id}
+                  onClick={() =>
+                    setSelectedSession(
+                      selectedSession === s.session_id
+                        ? null
+                        : s.session_id
+                    )
+                  }
+                  className="p-3 border cursor-pointer hover:bg-white/50"
+                >
+                  <div className="flex justify-between text-sm">
+                    <span className="font-mono text-xs">
+                      {s.session_id}
+                    </span>
 
-                const avgIdentity =
-                  subset.reduce((a, b) => a + b.identity_assurance_score, 0) /
-                  subset.length;
-
-                const avgIntegrity =
-                  subset.reduce((a, b) => a + b.session_integrity_score, 0) /
-                  subset.length;
-
-                return (
-                  <div
-                    key={id}
-                    onClick={() =>
-                      setSelectedSession(
-                        selectedSession === id ? null : id
-                      )
-                    }
-                    className="p-3 border cursor-pointer hover:bg-white/50"
-                  >
-                    <div className="flex justify-between text-sm">
-                      <span>{id}</span>
-
-                      <span
-                        className={
-                          avgIdentity > 0.9
-                            ? "text-green-600"
-                            : avgIdentity > 0.75
-                            ? "text-yellow-600"
-                            : "text-red-600"
-                        }
-                      >
-                        {avgIdentity > 0.9
-                          ? "FULL"
-                          : avgIdentity > 0.75
-                          ? "LIMITED"
-                          : "CHALLENGE"}
-                      </span>
-                    </div>
-
-                    <div className="text-xs text-gray-600">
-                      identity {(avgIdentity * 100).toFixed(0)}% ·
-                      integrity {(avgIntegrity * 100).toFixed(0)}%
-                    </div>
+                    <span
+                      className={
+                        s.avg_identity > 0.9
+                          ? "text-green-600"
+                          : s.avg_identity > 0.75
+                          ? "text-yellow-600"
+                          : "text-red-600"
+                      }
+                    >
+                      {s.avg_identity > 0.9
+                        ? "FULL"
+                        : s.avg_identity > 0.75
+                        ? "LIMITED"
+                        : "CHALLENGE"}
+                    </span>
                   </div>
-                );
-              })}
+
+                  <div className="text-xs text-gray-600">
+                    identity {(s.avg_identity * 100).toFixed(0)}% ·
+                    integrity {(s.avg_integrity * 100).toFixed(0)}%
+                  </div>
+
+                  {s.termination_reason && (
+                    <div className="text-[10px] mt-1 uppercase text-gray-500">
+                      terminated: {s.termination_reason}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
