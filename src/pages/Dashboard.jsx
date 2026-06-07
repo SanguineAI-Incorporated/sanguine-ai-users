@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-/* ---------------- 3-DAY SESSION SIMULATION ---------------- */
+/* ---------------- SIMULATION ---------------- */
 
 const sessions = (() => {
   const data = [];
@@ -21,17 +21,8 @@ const sessions = (() => {
   let sessionId = null;
   let ttl = 0;
 
-  let sessionStart = null;
-
   const makeSessionId = () =>
     "sess_" + Math.random().toString(16).slice(2, 10);
-
-  const pickTerminationReason = () => {
-    const r = Math.random();
-    if (r < 0.6) return "timeout";
-    if (r < 0.85) return "re_auth";
-    return "risk";
-  };
 
   for (let i = 0; i < points; i++) {
     const timestamp = new Date(
@@ -40,13 +31,9 @@ const sessions = (() => {
 
     if (ttl <= 0) {
       sessionId = makeSessionId();
-      sessionStart = timestamp;
       ttl = 20 + Math.floor(Math.random() * 40);
     }
-
     ttl--;
-
-    const isSessionEnd = ttl === 0;
 
     const speaker_match_score = 0.7 + Math.random() * 0.3;
     const presence_score = 0.65 + Math.random() * 0.35;
@@ -64,11 +51,7 @@ const sessions = (() => {
 
     data.push({
       timestamp,
-
       session_id: sessionId,
-      session_start: sessionStart,
-      session_end: isSessionEnd ? timestamp : null,
-      termination_reason: isSessionEnd ? pickTerminationReason() : null,
 
       identity_assurance_score,
       session_integrity_score,
@@ -83,72 +66,67 @@ const sessions = (() => {
 /* ---------------- DASHBOARD ---------------- */
 
 export default function Dashboard() {
-  const [selectedSession, setSelectedSession] = useState(null);
+  const [hoveredPoint, setHoveredPoint] = useState(null);
 
-  /* ---------------- TIME SERIES ---------------- */
+  /* ---------------- AGGREGATE: SESSION VOLUME OVER TIME ---------------- */
 
   const chartData = useMemo(() => {
-    return sessions.map((d) => ({
-      time: d.timestamp,
-      session_id: d.session_id,
-      identity: d.identity_assurance_score,
-      integrity: d.session_integrity_score,
-      risk: d.synthetic_speech_risk,
-    }));
-  }, []);
-
-  /* ---------------- SESSION GROUPING ---------------- */
-
-  const sessionMeta = useMemo(() => {
     const map = new Map();
 
     sessions.forEach((s) => {
-      if (!map.has(s.session_id)) {
-        map.set(s.session_id, {
-          session_id: s.session_id,
-          count: 0,
-          identity_sum: 0,
-          integrity_sum: 0,
-          termination_reason: null,
+      const t = s.timestamp;
+
+      if (!map.has(t)) {
+        map.set(t, {
+          time: t,
+          volume: 0,
+          sessions: new Set(),
+          sample: null,
         });
       }
 
-      const m = map.get(s.session_id);
-
-      m.count++;
-      m.identity_sum += s.identity_assurance_score;
-      m.integrity_sum += s.session_integrity_score;
-
-      if (s.session_end) {
-        m.termination_reason = s.termination_reason;
-      }
+      const entry = map.get(t);
+      entry.volume += 1;
+      entry.sessions.add(s.session_id);
+      entry.sample = s;
     });
 
-    return Array.from(map.values()).map((m) => ({
-      session_id: m.session_id,
-      avg_identity: m.identity_sum / m.count,
-      avg_integrity: m.integrity_sum / m.count,
-      termination_reason: m.termination_reason,
+    return Array.from(map.values()).map((d) => ({
+      time: d.time,
+      volume: d.volume,
+      session_id: Array.from(d.sessions)[0],
+      sample: d.sample,
     }));
   }, []);
 
-  const sessionsMap = useMemo(() => {
-    const map = new Map();
+  /* ---------------- MOCK REQUEST/RESPONSE ---------------- */
 
-    chartData.forEach((d) => {
-      if (!map.has(d.session_id)) {
-        map.set(d.session_id, []);
-      }
-      map.get(d.session_id).push(d);
-    });
+  const buildRequest = (sample) => ({
+    agent_id: sample?.session_id,
+    input: {
+      audio_stream: "base64:mock_audio_chunk",
+      timestamp: sample?.timestamp,
+    },
+    context: {
+      speaker_match_score: sample?.identity_assurance_score,
+      presence_score: sample?.session_integrity_score,
+    },
+  });
 
-    return Array.from(map.entries());
-  }, [chartData]);
-
-  const getOpacity = (id) => {
-    if (!selectedSession) return 1;
-    return selectedSession === id ? 1 : 0.12;
-  };
+  const buildResponse = (sample) => ({
+    identity_assurance_score: sample?.identity_assurance_score,
+    session_integrity_score: sample?.session_integrity_score,
+    anti_spoofing: {
+      synthetic_speech_risk: sample?.synthetic_speech_risk,
+      replay_attack_risk: sample?.replay_attack_risk,
+    },
+    authorization: {
+      status:
+        sample?.identity_assurance_score > 0.9
+          ? "FULL"
+          : "LIMITED",
+    },
+  });
 
   return (
     <div className="min-h-screen bg-[#C8D8E4] text-black">
@@ -166,67 +144,38 @@ export default function Dashboard() {
 
       <div className="pt-24 p-6 max-w-7xl mx-auto space-y-6">
 
-        {/* HEADER CARD */}
+        {/* HEADER */}
         <Card>
           <CardContent>
             <h2 className="text-xl font-semibold">
-              Continuous Identity Assurance
+              Continuous Identity Telemetry
             </h2>
-
-            <p className="text-sm text-gray-600 mt-1">
-              Cryptographic proof of control combined with passive voice-based presence verification.
+            <p className="text-sm text-gray-600">
+              Session activity volume + forensic identity inspection layer
             </p>
-
-            <div className="mt-3 text-xs font-mono text-black/70">
-              Identity → Presence → Trust → Authorization
-            </div>
           </CardContent>
         </Card>
 
-        {/* SESSION OVERLAY */}
-        <Card>
-          <CardContent>
-            <h2 className="text-xl mb-3">Session Overlay Mode</h2>
-
-            <div className="flex flex-wrap gap-2">
-              {[...new Set(sessions.map((s) => s.session_id))].map((id) => (
-                <button
-                  key={id}
-                  onClick={() =>
-                    setSelectedSession(
-                      selectedSession === id ? null : id
-                    )
-                  }
-                  className={`px-3 py-1 text-xs border rounded ${
-                    selectedSession === id
-                      ? "bg-black text-white"
-                      : "bg-white"
-                  }`}
-                >
-                  {id.slice(0, 10)}...
-                </button>
-              ))}
-
-              <button
-                onClick={() => setSelectedSession(null)}
-                className="px-3 py-1 text-xs border rounded bg-gray-100"
-              >
-                Clear
-              </button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* TIMELINE */}
+        {/* GRAPH */}
         <Card>
           <CardContent>
             <h2 className="text-xl mb-4">
-              3-Day Identity Continuity Timeline
+              Session Volume (3-Day Timeline)
             </h2>
 
             <div style={{ width: "100%", height: 300 }}>
               <ResponsiveContainer>
-                <LineChart>
+                <LineChart
+                  data={chartData}
+                  onMouseMove={(state) => {
+                    if (state?.activePayload?.[0]) {
+                      setHoveredPoint(
+                        state.activePayload[0].payload
+                      );
+                    }
+                  }}
+                  onMouseLeave={() => setHoveredPoint(null)}
+                >
                   <XAxis
                     dataKey="time"
                     tickFormatter={(t) =>
@@ -239,103 +188,56 @@ export default function Dashboard() {
                   <YAxis />
                   <Tooltip />
 
-                  {sessionsMap.map(([sessionId, points]) => {
-                    const opacity = getOpacity(sessionId);
-
-                    return (
-                      <React.Fragment key={sessionId}>
-                        <Line
-                          data={points}
-                          type="monotone"
-                          dataKey="identity"
-                          stroke="#2EC7FF"
-                          strokeOpacity={opacity}
-                          dot={false}
-                        />
-
-                        <Line
-                          data={points}
-                          type="monotone"
-                          dataKey="integrity"
-                          stroke="#22c55e"
-                          strokeOpacity={opacity}
-                          dot={false}
-                        />
-
-                        <Line
-                          data={points}
-                          type="monotone"
-                          dataKey="risk"
-                          stroke="#ef4444"
-                          strokeOpacity={opacity}
-                          dot={false}
-                        />
-                      </React.Fragment>
-                    );
-                  })}
+                  <Line
+                    type="monotone"
+                    dataKey="volume"
+                    stroke="#2EC7FF"
+                    dot={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
-            </div>
-
-            <div className="text-xs text-gray-600 mt-2">
-              Blue = identity · Green = integrity · Red = spoof risk · faded = inactive sessions
             </div>
           </CardContent>
         </Card>
 
-        {/* SESSION LIST */}
+        {/* REQUEST / RESPONSE INSPECTOR */}
         <Card>
           <CardContent>
-            <h2 className="text-xl mb-4">Sessions</h2>
+            <h2 className="text-xl mb-4">
+              Live Session Inspector
+            </h2>
 
-            <div className="space-y-2 max-h-96 overflow-auto">
-              {sessionMeta.map((s) => (
-                <div
-                  key={s.session_id}
-                  onClick={() =>
-                    setSelectedSession(
-                      selectedSession === s.session_id
-                        ? null
-                        : s.session_id
-                    )
-                  }
-                  className="p-3 border cursor-pointer hover:bg-white/50"
-                >
-                  <div className="flex justify-between text-sm">
-                    <span className="font-mono text-xs">
-                      {s.session_id}
-                    </span>
+            {hoveredPoint ? (
+              <div className="grid grid-cols-2 gap-4 text-xs">
 
-                    <span
-                      className={
-                        s.avg_identity > 0.9
-                          ? "text-green-600"
-                          : s.avg_identity > 0.75
-                          ? "text-yellow-600"
-                          : "text-red-600"
-                      }
-                    >
-                      {s.avg_identity > 0.9
-                        ? "FULL"
-                        : s.avg_identity > 0.75
-                        ? "LIMITED"
-                        : "CHALLENGE"}
-                    </span>
-                  </div>
-
-                  <div className="text-xs text-gray-600">
-                    identity {(s.avg_identity * 100).toFixed(0)}% ·
-                    integrity {(s.avg_integrity * 100).toFixed(0)}%
-                  </div>
-
-                  {s.termination_reason && (
-                    <div className="text-[10px] mt-1 uppercase text-gray-500">
-                      terminated: {s.termination_reason}
-                    </div>
-                  )}
+                <div>
+                  <b>Request JSON</b>
+                  <pre className="mt-2 bg-white p-2 border overflow-auto">
+                    {JSON.stringify(
+                      buildRequest(hoveredPoint.sample),
+                      null,
+                      2
+                    )}
+                  </pre>
                 </div>
-              ))}
-            </div>
+
+                <div>
+                  <b>Response JSON</b>
+                  <pre className="mt-2 bg-white p-2 border overflow-auto">
+                    {JSON.stringify(
+                      buildResponse(hoveredPoint.sample),
+                      null,
+                      2
+                    )}
+                  </pre>
+                </div>
+
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">
+                Hover over the timeline to inspect session telemetry
+              </p>
+            )}
           </CardContent>
         </Card>
 
