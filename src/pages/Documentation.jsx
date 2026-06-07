@@ -137,17 +137,11 @@ export default function Documentation() {
         {/* OVERVIEW */}
         <div className="bg-white/90 border border-black/10 rounded-lg p-5 text-sm">
           <p>
-            Traditional authentication verifies identity once and assumes
-            trust indefinitely. Autonomous voice agents require continuous
-            assurance that the authorized user remains present and in
-            control of the session.
+           Autonomous agents need more than login-based authentication.
           </p>
 
           <p className="mt-3">
-            Our platform combines cryptographic credentials, passive
-            speaker verification, anti-spoofing analysis, and session
-            integrity monitoring to continuously evaluate whether an
-            agent should continue acting on behalf of a user.
+            Our platform continuously verifies identity using cryptographic proof of control, passive speaker verification, and real-time anti-spoofing signals to determine whether an agent should continue acting on a user's behalf
           </p>
         </div>
 
