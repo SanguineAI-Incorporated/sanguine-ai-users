@@ -128,10 +128,6 @@ export default function Documentation() {
             For Autonomous Voice Agents
           </p>
 
-          <p className="text-sm text-gray-600 mt-3 max-w-3xl">
-            Cryptographic proof of control combined with passive
-            voice-based presence verification.
-          </p>
         </div>
 
         {/* OVERVIEW */}
