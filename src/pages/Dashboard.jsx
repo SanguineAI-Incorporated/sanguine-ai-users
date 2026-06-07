@@ -10,27 +10,19 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-/* ---------------- RAW SENSOR LOGS (mock) ---------------- */
+/* ---------------- RAW LOGS (VOICE AGENT SIMULATION) ---------------- */
 
 const rawLogs = (() => {
   const logs = [];
   const start = Date.now() - 1000 * 60 * 60 * 6;
 
   for (let i = 0; i < 60; i++) {
-    const occlusion = Math.random();
-    const motion = Math.random();
-    const command =
-      Math.random() > 0.6
-        ? ["MOVE", "STOP", "ASSIST"][Math.floor(Math.random() * 3)]
-        : null;
-
     logs.push({
       timestamp: new Date(start + i * 60000).toISOString(),
       raw: {
-        sensors: {
-          vision: { occlusion },
-          motion: { velocity: motion },
-          audio: { command },
+        audio: {
+          duration: Math.floor(Math.random() * 30) + 5,
+          speaker_active: Math.random() > 0.1,
         },
       },
     });
@@ -39,43 +31,74 @@ const rawLogs = (() => {
   return logs;
 })();
 
-/* ---------------- INFERENCE STACK ---------------- */
+/* ---------------- INFERENCE: CONTINUOUS IDENTITY ASSURANCE ---------------- */
 
 function infer(log) {
-  const occlusion = log.raw.sensors.vision.occlusion;
-  const motion = log.raw.sensors.motion.velocity;
-  const command = log.raw.sensors.audio.command;
+  const speaker_match_score = 0.75 + Math.random() * 0.25;
+  const presence_score = 0.7 + Math.random() * 0.3;
 
-  const hazard_score = occlusion * 0.6 + (1 - motion) * 0.4;
-  const trust_score = 1 - occlusion * 0.5;
-  const stability_index = 1 - Math.abs(0.5 - motion);
+  const synthetic_speech_risk = Math.random() * 0.2;
+  const replay_attack_risk = Math.random() * 0.15;
+  const voice_conversion_risk = Math.random() * 0.2;
 
-  const task_success = command === "ASSIST" && hazard_score < 0.6;
-  const safety_event = hazard_score > 0.75;
+  const identity_assurance_score =
+    speaker_match_score * 0.5 +
+    presence_score * 0.3 +
+    (1 - synthetic_speech_risk) * 0.2;
+
+  const session_integrity_score =
+    1 -
+    (synthetic_speech_risk +
+      replay_attack_risk +
+      voice_conversion_risk) /
+      3;
+
+  const autonomy_confidence =
+    identity_assurance_score * session_integrity_score;
+
+  const authorization_state =
+    identity_assurance_score > 0.9
+      ? "FULL"
+      : identity_assurance_score > 0.75
+      ? "LIMITED"
+      : "CHALLENGE";
 
   return {
-    derived_features: {
-      hazard_score,
-      trust_score,
-      stability_index,
+    identity: {
+      user_id: "user_demo_001",
+      session_id: "sess_" + Math.random().toString(16).slice(2),
+      credential_status: "VERIFIED",
     },
 
-    outcomes: {
-      task_success,
-      safety_event,
+    speaker_assurance: {
+      speaker_match_score,
+      speaker_continuity: 0.8 + Math.random() * 0.2,
+      presence_score,
     },
 
-    reward_proxies: {
-      safety_reward: 1 - hazard_score,
-      task_reward: task_success ? 1 : 0,
-      comfort_reward: stability_index,
+    anti_spoofing: {
+      synthetic_speech_risk,
+      replay_attack_risk,
+      voice_conversion_risk,
+      audio_authenticity_score: 1 - synthetic_speech_risk,
+    },
+
+    continuous_assurance: {
+      identity_assurance_score,
+      session_integrity_score,
+      autonomy_confidence,
+    },
+
+    authorization: {
+      authorization_state,
+      proof_of_control: true,
+      action_approval: authorization_state !== "CHALLENGE",
     },
 
     attestation: {
-      verified: Math.random() > 0.2,
+      verified: true,
       signature: "sig_" + Math.random().toString(16).slice(2),
       hash: "hash_" + Math.random().toString(16).slice(2),
-      public_key_id: "key_robotics_fleet_01",
     },
   };
 }
@@ -98,12 +121,10 @@ export default function Dashboard() {
   const volumeData = useMemo(() => {
     return episodes.map((e, i) => ({
       index: i,
-      hazard: e.derived_features.hazard_score,
-      trust: e.derived_features.trust_score,
+      identity: e.continuous_assurance.identity_assurance_score,
+      integrity: e.continuous_assurance.session_integrity_score,
     }));
   }, [episodes]);
-
-  /* ---------------- EXPORT ---------------- */
 
   const exportJSONL = () => {
     const jsonl = episodes.map((e) => JSON.stringify(e)).join("\n");
@@ -112,7 +133,7 @@ export default function Dashboard() {
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = "behavioral_dataset.jsonl";
+    a.download = "identity_assurance_events.jsonl";
     a.click();
 
     URL.revokeObjectURL(url);
@@ -138,32 +159,55 @@ export default function Dashboard() {
         <Card>
           <CardContent>
             <h2 className="text-xl font-semibold">
-              Behavioral Dataset Engine
+              Continuous Identity Assurance
             </h2>
 
             <p className="text-sm text-gray-600 mt-1">
-              Raw sensor logs → structured behavioral records → probabilistic inference → training-ready episodes
+              Cryptographic proof of control combined with passive voice-based presence verification.
             </p>
 
             <div className="mt-3 text-xs font-mono text-black/70">
-              Signed behavioral datasets for robotics and multimodal agent platforms
+              Identity → Presence → Trust → Authorization
             </div>
           </CardContent>
         </Card>
 
-        {/* SIGNALS */}
+        {/* KPI STRIP */}
+        <div className="grid grid-cols-4 gap-4">
+          <Card><CardContent className="p-5">
+            <div className="text-xs text-gray-500">Identity Assurance</div>
+            <div className="text-3xl font-bold">94%</div>
+          </CardContent></Card>
+
+          <Card><CardContent className="p-5">
+            <div className="text-xs text-gray-500">Presence Score</div>
+            <div className="text-3xl font-bold">91%</div>
+          </CardContent></Card>
+
+          <Card><CardContent className="p-5">
+            <div className="text-xs text-gray-500">Session Integrity</div>
+            <div className="text-3xl font-bold">96%</div>
+          </CardContent></Card>
+
+          <Card><CardContent className="p-5">
+            <div className="text-xs text-gray-500">Synthetic Speech Risk</div>
+            <div className="text-3xl font-bold">3%</div>
+          </CardContent></Card>
+        </div>
+
+        {/* SIGNALS CHART */}
         <Card>
           <CardContent>
-            <h2 className="text-xl mb-4">System Signals</h2>
+            <h2 className="text-xl mb-4">Continuous Assurance Signals</h2>
 
-            <div style={{ width: "100%", height: 240 }}>
+            <div style={{ width: "100%", height: 260 }}>
               <ResponsiveContainer>
                 <LineChart data={volumeData}>
                   <XAxis dataKey="index" />
                   <YAxis />
                   <Tooltip />
-                  <Line type="monotone" dataKey="hazard" stroke="#ff4d4d" />
-                  <Line type="monotone" dataKey="trust" stroke="#2EC7FF" />
+                  <Line type="monotone" dataKey="identity" stroke="#2EC7FF" />
+                  <Line type="monotone" dataKey="integrity" stroke="#22c55e" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -173,7 +217,7 @@ export default function Dashboard() {
         {/* EPISODES */}
         <Card>
           <CardContent>
-            <h2 className="text-xl mb-4">Behavioral Episodes</h2>
+            <h2 className="text-xl mb-4">Identity Assurance Events</h2>
 
             <div className="space-y-2 max-h-96 overflow-auto">
               {episodes.map((e) => (
@@ -185,38 +229,31 @@ export default function Dashboard() {
                   className="p-3 border cursor-pointer hover:bg-white/50"
                 >
                   <div className="flex justify-between text-sm">
-
                     <span>{e.id}</span>
 
                     <div className="flex gap-2 items-center">
-
                       <span
                         className={
-                          e.outcomes.safety_event
+                          e.authorization.authorization_state === "CHALLENGE"
                             ? "text-red-600"
                             : "text-green-600"
                         }
                       >
-                        {e.outcomes.safety_event ? "RISK" : "SAFE"}
+                        {e.authorization.authorization_state}
                       </span>
 
-                      <span
-                        className={
-                          e.attestation.verified
-                            ? "text-blue-600 text-xs"
-                            : "text-yellow-600 text-xs"
-                        }
-                      >
-                        {e.attestation.verified ? "VERIFIED" : "UNVERIFIED"}
+                      <span className="text-blue-600 text-xs">
+                        VERIFIED
                       </span>
-
                     </div>
-
                   </div>
 
                   <div className="text-xs text-gray-600">
-                    hazard: {e.derived_features.hazard_score.toFixed(2)} | trust:{" "}
-                    {e.derived_features.trust_score.toFixed(2)}
+                    identity:{" "}
+                    {(e.continuous_assurance.identity_assurance_score * 100).toFixed(0)}%
+                    {" | "}
+                    integrity:{" "}
+                    {(e.continuous_assurance.session_integrity_score * 100).toFixed(0)}%
                   </div>
                 </div>
               ))}
@@ -224,49 +261,64 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* DETAIL PANEL */}
+        {/* DETAIL */}
         <Card>
           <CardContent>
-            <h2 className="text-xl mb-4">Episode Detail</h2>
+            <h2 className="text-xl mb-4">Event Detail</h2>
 
             {selected ? (
               <div className="text-sm space-y-4">
 
                 <div>
-                  <b>Derived Features</b>
-                  <div>Hazard: {selected.derived_features.hazard_score.toFixed(2)}</div>
-                  <div>Trust: {selected.derived_features.trust_score.toFixed(2)}</div>
-                  <div>Stability: {selected.derived_features.stability_index.toFixed(2)}</div>
+                  <b>Identity</b>
+                  <div>User: {selected.identity.user_id}</div>
+                  <div>Credential: {selected.identity.credential_status}</div>
+                  <div>Session: {selected.identity.session_id}</div>
                 </div>
 
                 <div>
-                  <b>Outcomes</b>
-                  <div>Success: {String(selected.outcomes.task_success)}</div>
-                  <div>Safety Event: {String(selected.outcomes.safety_event)}</div>
-                </div>
-
-                <div>
-                  <b>Reward Proxies</b>
-                  <div>Safety: {selected.reward_proxies.safety_reward.toFixed(2)}</div>
-                  <div>Task: {selected.reward_proxies.task_reward.toFixed(2)}</div>
-                  <div>Comfort: {selected.reward_proxies.comfort_reward.toFixed(2)}</div>
-                </div>
-
-                <div>
-                  <b>Attestation</b>
-                  <div>Verified: {String(selected.attestation.verified)}</div>
-                  <div>Public Key: {selected.attestation.public_key_id}</div>
-                  <div className="text-xs text-gray-600">
-                    Signature: {selected.attestation.signature}
+                  <b>Speaker Assurance</b>
+                  <div>
+                    Match: {(selected.speaker_assurance.speaker_match_score * 100).toFixed(0)}%
                   </div>
-                  <div className="text-xs text-gray-600">
-                    Hash: {selected.attestation.hash}
+                  <div>
+                    Presence: {(selected.speaker_assurance.presence_score * 100).toFixed(0)}%
                   </div>
+                  <div>
+                    Continuity: {(selected.speaker_assurance.speaker_continuity * 100).toFixed(0)}%
+                  </div>
+                </div>
+
+                <div>
+                  <b>Anti-Spoofing</b>
+                  <div>Synthetic: {(selected.anti_spoofing.synthetic_speech_risk * 100).toFixed(1)}%</div>
+                  <div>Replay: {(selected.anti_spoofing.replay_attack_risk * 100).toFixed(1)}%</div>
+                  <div>Voice Conversion: {(selected.anti_spoofing.voice_conversion_risk * 100).toFixed(1)}%</div>
+                </div>
+
+                <div>
+                  <b>Continuous Assurance</b>
+                  <div>
+                    Identity: {(selected.continuous_assurance.identity_assurance_score * 100).toFixed(0)}%
+                  </div>
+                  <div>
+                    Integrity: {(selected.continuous_assurance.session_integrity_score * 100).toFixed(0)}%
+                  </div>
+                  <div>
+                    Autonomy: {(selected.continuous_assurance.autonomy_confidence * 100).toFixed(0)}%
+                  </div>
+                </div>
+
+                <div>
+                  <b>Authorization</b>
+                  <div>State: {selected.authorization.authorization_state}</div>
+                  <div>Proof: {String(selected.authorization.proof_of_control)}</div>
+                  <div>Approval: {String(selected.authorization.action_approval)}</div>
                 </div>
 
               </div>
             ) : (
-              <p className="text-sm text-gray-500">Select an episode</p>
+              <p className="text-sm text-gray-500">Select an event</p>
             )}
           </CardContent>
         </Card>
@@ -276,9 +328,9 @@ export default function Dashboard() {
           <CardContent>
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="text-xl">Dataset Export</h2>
+                <h2 className="text-xl">Trust Event Export</h2>
                 <p className="text-sm text-gray-600">
-                  Export signed behavioral episodes as JSONL for ML training
+                  Export cryptographically signed identity assurance events as JSONL.
                 </p>
               </div>
 
@@ -297,18 +349,12 @@ export default function Dashboard() {
       {/* HOVER INSPECTOR */}
       {hovered && (
         <div className="fixed right-6 top-24 w-[420px] max-h-[70vh] overflow-auto bg-[#C8D8E4] text-black text-[10px] p-3 border border-black/10 shadow-xl z-50 rounded-lg backdrop-blur-xl">
-          
-          <div className="mb-2 font-bold text-black">
-            Episode JSON
-          </div>
-      
+          <div className="mb-2 font-bold">Event JSON</div>
           <pre className="whitespace-pre-wrap text-black/80">
             {JSON.stringify(hovered, null, 2)}
           </pre>
-      
         </div>
       )}
-
     </div>
   );
 }
