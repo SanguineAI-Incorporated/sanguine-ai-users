@@ -10,165 +10,97 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-/* ---------------- RAW LOGS ---------------- */
+/* ---------------- 3-DAY CONTINUOUS SIMULATION ---------------- */
 
-const rawLogs = (() => {
-  const logs = [];
-  const start = Date.now() - 1000 * 60 * 60 * 6;
+const sessions = (() => {
+  const data = [];
+  const now = Date.now();
 
-  for (let i = 0; i < 60; i++) {
-    logs.push({
-      timestamp: new Date(start + i * 60000).toISOString(),
-      raw: {
-        audio: {
-          duration: Math.floor(Math.random() * 30) + 5,
-          speaker_active: Math.random() > 0.1,
-        },
-      },
+  const points = 432; // 3 days @ 10-min resolution
+
+  let sessionCounter = 0;
+  let sessionTTL = 0;
+
+  for (let i = 0; i < points; i++) {
+    const timestamp = new Date(
+      now - (points - i) * 10 * 60 * 1000
+    ).toISOString();
+
+    // session boundaries
+    if (sessionTTL <= 0) {
+      sessionCounter++;
+      sessionTTL = 20 + Math.floor(Math.random() * 40);
+    }
+    sessionTTL--;
+
+    const speaker_match_score = 0.7 + Math.random() * 0.3;
+    const presence_score = 0.65 + Math.random() * 0.35;
+
+    const synthetic_speech_risk = Math.random() * 0.2;
+    const replay_attack_risk = Math.random() * 0.15;
+
+    const identity_assurance_score =
+      speaker_match_score * 0.5 +
+      presence_score * 0.3 +
+      (1 - synthetic_speech_risk) * 0.2;
+
+    const session_integrity_score =
+      1 - (synthetic_speech_risk + replay_attack_risk) / 2;
+
+    const autonomy_confidence =
+      identity_assurance_score * session_integrity_score;
+
+    data.push({
+      timestamp,
+      session_id: `session_${sessionCounter}`,
+
+      identity_assurance_score,
+      session_integrity_score,
+      autonomy_confidence,
+
+      synthetic_speech_risk,
+      replay_attack_risk,
     });
   }
 
-  return logs;
+  return data;
 })();
-
-/* ---------------- INFERENCE ---------------- */
-
-function infer() {
-  const speaker_match_score = 0.75 + Math.random() * 0.25;
-  const presence_score = 0.7 + Math.random() * 0.3;
-
-  const synthetic_speech_risk = Math.random() * 0.2;
-  const replay_attack_risk = Math.random() * 0.15;
-
-  const identity_assurance_score =
-    speaker_match_score * 0.5 +
-    presence_score * 0.3 +
-    (1 - synthetic_speech_risk) * 0.2;
-
-  const session_integrity_score =
-    1 - (synthetic_speech_risk + replay_attack_risk) / 2;
-
-  return {
-    identity: {
-      user_id: "user_demo_001",
-      session_id:
-        "sess_" + Math.random().toString(16).slice(2),
-      credential_status: "VERIFIED",
-    },
-
-    speaker_assurance: {
-      speaker_match_score,
-      presence_score,
-      speaker_continuity: 0.8 + Math.random() * 0.2,
-    },
-
-    anti_spoofing: {
-      synthetic_speech_risk,
-      replay_attack_risk,
-      audio_authenticity_score: 1 - synthetic_speech_risk,
-    },
-
-    continuous_assurance: {
-      identity_assurance_score,
-      session_integrity_score,
-      autonomy_confidence:
-        identity_assurance_score * session_integrity_score,
-    },
-
-    authorization: {
-      authorization_state:
-        identity_assurance_score > 0.9
-          ? "FULL"
-          : identity_assurance_score > 0.75
-          ? "LIMITED"
-          : "CHALLENGE",
-      proof_of_control: true,
-      action_approval: identity_assurance_score > 0.75,
-    },
-
-    attestation: {
-      verified: true,
-      signature:
-        "sig_" + Math.random().toString(16).slice(2),
-      hash:
-        "hash_" + Math.random().toString(16).slice(2),
-    },
-  };
-}
 
 /* ---------------- DASHBOARD ---------------- */
 
 export default function Dashboard() {
-  const [selected, setSelected] = useState(null);
-  const [hovered, setHovered] = useState(null);
+  const [selectedSession, setSelectedSession] = useState(null);
 
-  const episodes = useMemo(() => {
-    return rawLogs.map((log, i) => ({
-      id: `ep-${i}`,
-      timestamp: log.timestamp,
-      raw: log.raw,
-      ...infer(),
+  /* ---------------- CHART DATA ---------------- */
+
+  const chartData = useMemo(() => {
+    return sessions.map((d) => ({
+      time: d.timestamp,
+      session_id: d.session_id,
+      identity: d.identity_assurance_score,
+      integrity: d.session_integrity_score,
+      risk: d.synthetic_speech_risk,
     }));
   }, []);
 
-  /* ---------------- SESSION AGGREGATION ---------------- */
+  /* ---------------- SESSION GROUPING ---------------- */
 
-  const sessionData = useMemo(() => {
+  const sessionsMap = useMemo(() => {
     const map = new Map();
 
-    episodes.forEach((e) => {
-      const sid = e.identity.session_id;
-
-      if (!map.has(sid)) {
-        map.set(sid, {
-          session: sid,
-          identity_sum: 0,
-          integrity_sum: 0,
-          min_identity: 1,
-          risk_sum: 0,
-          count: 0,
-        });
+    chartData.forEach((d) => {
+      if (!map.has(d.session_id)) {
+        map.set(d.session_id, []);
       }
-
-      const s = map.get(sid);
-
-      const identity =
-        e.continuous_assurance.identity_assurance_score;
-
-      const integrity =
-        e.continuous_assurance.session_integrity_score;
-
-      const risk =
-        e.anti_spoofing.synthetic_speech_risk;
-
-      s.identity_sum += identity;
-      s.integrity_sum += integrity;
-      s.risk_sum += risk;
-      s.count += 1;
-
-      s.min_identity = Math.min(s.min_identity, identity);
+      map.get(d.session_id).push(d);
     });
 
-    return Array.from(map.values()).map((s, i) => ({
-      session: `Session ${i + 1}`,
-      identity: s.identity_sum / s.count,
-      integrity: s.integrity_sum / s.count,
-      min_identity: s.min_identity,
-      synthetic_risk: s.risk_sum / s.count,
-    }));
-  }, [episodes]);
+    return Array.from(map.entries());
+  }, [chartData]);
 
-  const exportJSONL = () => {
-    const jsonl = episodes.map((e) => JSON.stringify(e)).join("\n");
-    const blob = new Blob([jsonl], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "identity_assurance_events.jsonl";
-    a.click();
-
-    URL.revokeObjectURL(url);
+  const getOpacity = (sessionId) => {
+    if (!selectedSession) return 1;
+    return sessionId === selectedSession ? 1 : 0.12;
   };
 
   return (
@@ -187,7 +119,7 @@ export default function Dashboard() {
 
       <div className="pt-24 p-6 max-w-7xl mx-auto space-y-6">
 
-        {/* SYSTEM HEADER */}
+        {/* HEADER CARD */}
         <Card>
           <CardContent>
             <h2 className="text-xl font-semibold">
@@ -204,43 +136,110 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* SESSION METRICS CHART */}
+        {/* SESSION OVERLAY SELECTOR */}
+        <Card>
+          <CardContent>
+            <h2 className="text-xl mb-3">Session Overlay Mode</h2>
+
+            <div className="flex flex-wrap gap-2">
+              {[...new Set(sessions.map((s) => s.session_id))].map((id) => (
+                <button
+                  key={id}
+                  onClick={() =>
+                    setSelectedSession(
+                      selectedSession === id ? null : id
+                    )
+                  }
+                  className={`px-3 py-1 text-xs border rounded ${
+                    selectedSession === id
+                      ? "bg-black text-white"
+                      : "bg-white"
+                  }`}
+                >
+                  {id}
+                </button>
+              ))}
+
+              <button
+                onClick={() => setSelectedSession(null)}
+                className="px-3 py-1 text-xs border rounded bg-gray-100"
+              >
+                Clear
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500 mt-2">
+              Click a session to isolate its identity trajectory across 3 days
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* TIMELINE CHART */}
         <Card>
           <CardContent>
             <h2 className="text-xl mb-4">
-              Session-Level Identity Continuity
+              3-Day Identity Continuity Timeline
             </h2>
 
-            <div style={{ width: "100%", height: 280 }}>
+            <div style={{ width: "100%", height: 300 }}>
               <ResponsiveContainer>
-                <LineChart data={sessionData}>
-                  <XAxis dataKey="session" />
+                <LineChart>
+                  <XAxis
+                    dataKey="time"
+                    tickFormatter={(t) =>
+                      new Date(t).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    }
+                  />
                   <YAxis />
-                  <Tooltip />
-
-                  <Line
-                    type="monotone"
-                    dataKey="identity"
-                    stroke="#2EC7FF"
+                  <Tooltip
+                    labelFormatter={(t) =>
+                      new Date(t).toLocaleString()
+                    }
                   />
 
-                  <Line
-                    type="monotone"
-                    dataKey="integrity"
-                    stroke="#22c55e"
-                  />
+                  {sessionsMap.map(([sessionId, points]) => {
+                    const opacity = getOpacity(sessionId);
 
-                  <Line
-                    type="monotone"
-                    dataKey="min_identity"
-                    stroke="#ef4444"
-                  />
+                    return (
+                      <React.Fragment key={sessionId}>
+                        <Line
+                          data={points}
+                          type="monotone"
+                          dataKey="identity"
+                          stroke="#2EC7FF"
+                          strokeOpacity={opacity}
+                          dot={false}
+                        />
+
+                        <Line
+                          data={points}
+                          type="monotone"
+                          dataKey="integrity"
+                          stroke="#22c55e"
+                          strokeOpacity={opacity}
+                          dot={false}
+                        />
+
+                        <Line
+                          data={points}
+                          type="monotone"
+                          dataKey="risk"
+                          stroke="#ef4444"
+                          strokeOpacity={opacity}
+                          dot={false}
+                        />
+                      </React.Fragment>
+                    );
+                  })}
                 </LineChart>
               </ResponsiveContainer>
             </div>
 
             <div className="text-xs text-gray-600 mt-2">
-              Blue = average identity · Green = session integrity · Red = weakest identity point
+              Blue = identity assurance · Green = session integrity · Red = spoofing risk · faded = inactive sessions
             </div>
           </CardContent>
         </Card>
@@ -251,70 +250,54 @@ export default function Dashboard() {
             <h2 className="text-xl mb-4">Sessions</h2>
 
             <div className="space-y-2 max-h-96 overflow-auto">
-              {sessionData.map((s, i) => (
-                <div
-                  key={i}
-                  className="p-3 border hover:bg-white/50"
-                >
-                  <div className="flex justify-between text-sm">
-                    <span>{s.session}</span>
+              {[...new Set(sessions.map((s) => s.session_id))].map((id) => {
+                const subset = sessions.filter((s) => s.session_id === id);
 
-                    <span className={
-                      s.identity > 0.9
-                        ? "text-green-600"
-                        : s.identity > 0.75
-                        ? "text-yellow-600"
-                        : "text-red-600"
-                    }>
-                      {s.identity > 0.9
-                        ? "FULL"
-                        : s.identity > 0.75
-                        ? "LIMITED"
-                        : "CHALLENGE"}
-                    </span>
+                const avgIdentity =
+                  subset.reduce((a, b) => a + b.identity_assurance_score, 0) /
+                  subset.length;
+
+                const avgIntegrity =
+                  subset.reduce((a, b) => a + b.session_integrity_score, 0) /
+                  subset.length;
+
+                return (
+                  <div
+                    key={id}
+                    onClick={() =>
+                      setSelectedSession(
+                        selectedSession === id ? null : id
+                      )
+                    }
+                    className="p-3 border cursor-pointer hover:bg-white/50"
+                  >
+                    <div className="flex justify-between text-sm">
+                      <span>{id}</span>
+
+                      <span
+                        className={
+                          avgIdentity > 0.9
+                            ? "text-green-600"
+                            : avgIdentity > 0.75
+                            ? "text-yellow-600"
+                            : "text-red-600"
+                        }
+                      >
+                        {avgIdentity > 0.9
+                          ? "FULL"
+                          : avgIdentity > 0.75
+                          ? "LIMITED"
+                          : "CHALLENGE"}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-gray-600">
+                      identity {(avgIdentity * 100).toFixed(0)}% ·
+                      integrity {(avgIntegrity * 100).toFixed(0)}%
+                    </div>
                   </div>
-
-                  <div className="text-xs text-gray-600">
-                    identity {(s.identity * 100).toFixed(0)}% ·
-                    integrity {(s.integrity * 100).toFixed(0)}% ·
-                    min {(s.min_identity * 100).toFixed(0)}%
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* DETAIL PANEL */}
-        <Card>
-          <CardContent>
-            <h2 className="text-xl mb-4">
-              Session Detail (Select for expansion)
-            </h2>
-
-            <p className="text-sm text-gray-500">
-              Session-level drilldown can extend into per-event identity traces.
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* EXPORT */}
-        <Card>
-          <CardContent>
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-xl">Trust Event Export</h2>
-                <p className="text-sm text-gray-600">
-                  Export cryptographically signed identity assurance events.
-                </p>
-              </div>
-
-              <button
-                onClick={exportJSONL}
-                className="px-4 py-2 bg-black text-white text-sm hover:bg-gray-800"
-              >
-                Export JSONL
-              </button>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
